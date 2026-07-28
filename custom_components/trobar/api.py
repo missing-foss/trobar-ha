@@ -11,6 +11,7 @@ from it.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -69,6 +70,21 @@ def normalize_base_url(raw: str) -> str:
     parts = urlsplit(raw)
     path = parts.path.rstrip("/")
     return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), path, "", ""))
+
+
+def parse_server_timestamp(raw: str | None) -> datetime | None:
+    """Parse a trobar-server timestamp column into an aware datetime.
+
+    The server stores these with SQLite's `datetime('now')` (trobar-ha#5),
+    which yields "YYYY-MM-DD HH:MM:SS" -- UTC, but with no "T" separator
+    and no offset, so it is not quite ISO 8601. `datetime.fromisoformat`
+    accepts the space-separated form directly (Python 3.11+); the UTC
+    offset still has to be attached by hand, since the string itself
+    doesn't carry one.
+    """
+    if raw is None:
+        return None
+    return datetime.fromisoformat(raw).replace(tzinfo=UTC)
 
 
 class TrobarApiClient:

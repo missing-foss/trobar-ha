@@ -1,0 +1,175 @@
+# SPDX-FileCopyrightText: 2026 missing-foss
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""Tests for the Trobar sensor platform (trobar-ha#5)."""
+
+import copy
+
+from homeassistant.const import CONF_API_TOKEN, CONF_URL
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from custom_components.trobar.const import DOMAIN
+
+DEVICES_URL = "http://trobar.local/api/integrations/devices"
+
+# A regular phone: fully populated, nothing null.
+PHONE_DEVICE = {
+    "id": 1,
+    "name": "Test Phone",
+    "device_type": "phone",
+    "owner_user_id": 1,
+    "owner_username": "alice",
+    "is_own": True,
+    "is_pinned": False,
+    "max_size_bytes": 150000000000,
+    "reported_free_bytes": 300000000000,
+    "reported_total_bytes": 512000000000,
+    "free_bytes_reported_at": "2026-07-28 21:00:00",
+    "last_seen_at": "2026-07-28 21:00:00",
+    "created_at": "2026-01-01 00:00:00",
+    "source_of_truth": "device",
+    "transcode_format": None,
+    "artist_images": "small",
+    "unknown_track_count": 223,
+    "autofit": {"enabled": False, "percent": 100},
+    "sync_status": {"last_synced_at": "2026-07-28 20:00:00", "pending_count": 10},
+}
+
+# A delegated (not owned) watch: never synced, and permanently no storage
+# data at all -- the trobar-ha#2 case that must NOT read as a bug.
+WATCH_DEVICE = {
+    "id": 5,
+    "name": "Test Watch",
+    "device_type": "watch",
+    "owner_user_id": 2,
+    "owner_username": "bob",
+    "is_own": False,
+    "is_pinned": False,
+    "max_size_bytes": None,
+    "reported_free_bytes": None,
+    "reported_total_bytes": None,
+    "free_bytes_reported_at": None,
+    "last_seen_at": "2026-07-28 21:00:00",
+    "created_at": "2026-01-01 00:00:00",
+    "source_of_truth": "server",
+    "transcode_format": "mp3_128",
+    "artist_images": None,
+    "unknown_track_count": None,
+    "autofit": {"enabled": False, "percent": 100},
+    "sync_status": {"last_synced_at": None, "pending_count": 1},
+}
+
+
+async def _setup_entry(hass, aioclient_mock, devices) -> MockConfigEntry:
+    aioclient_mock.get(DEVICES_URL, json=copy.deepcopy(devices))
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="http://trobar.local",
+        data={CONF_URL: "http://trobar.local", CONF_API_TOKEN: "abc123"},
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    return entry
+
+
+def _entity_id(hass, device_id: int, key: str) -> str | None:
+    registry = er.async_get(hass)
+    return registry.async_get_entity_id("sensor", DOMAIN, f"{device_id}_{key}")
+
+
+async def test_populated_device_sensor_values(hass, aioclient_mock):
+    """A fully-populated device's sensors read its values directly."""
+    await _setup_entry(hass, aioclient_mock, [PHONE_DEVICE])
+
+    assert hass.states.get(_entity_id(hass, 1, "pending_tracks")).state == "10"
+    assert hass.states.get(_entity_id(hass, 1, "unknown_tracks")).state == "223"
+    assert hass.states.get(_entity_id(hass, 1, "free_space")).state != "unavailable"
+
+
+async def test_never_synced_reads_as_unknown_not_unavailable(hass, aioclient_mock):
+    """last_synced_at: null means 'never', which is a real value -- the
+    sensor must stay available, just with no timestamp yet."""
+    await _setup_entry(hass, aioclient_mock, [WATCH_DEVICE])
+
+    state = hass.states.get(_entity_id(hass, 5, "last_synced"))
+    assert state.state == "unknown"
+
+
+async def test_unknown_track_count_null_is_not_zero(hass, aioclient_mock):
+    """unknown_track_count: null must not be coerced into the state "0"."""
+    await _setup_entry(hass, aioclient_mock, [WATCH_DEVICE])
+
+    state = hass.states.get(_entity_id(hass, 5, "unknown_tracks"))
+    assert state.state == "unknown"
+    assert state.state != "0"
+
+
+async def test_watch_storage_sensors_are_unavailable_not_unknown(hass, aioclient_mock):
+    """A device that structurally never reports storage (trobar-ha#2's
+    watch case) must read UNAVAILABLE, not get stuck at "unknown" with no
+    explanation."""
+    await _setup_entry(hass, aioclient_mock, [WATCH_DEVICE])
+
+    assert hass.states.get(_entity_id(hass, 5, "free_space")).state == "unavailable"
+    assert hass.states.get(_entity_id(hass, 5, "total_space")).state == "unavailable"
+
+
+async def test_delegated_device_exposes_ownership_attributes(hass, aioclient_mock):
+    """A device belonging to another household member carries is_own and
+    owner_username as attributes, so a card can distinguish it."""
+    await _setup_entry(hass, aioclient_mock, [WATCH_DEVICE])
+
+    state = hass.states.get(_entity_id(hass, 5, "pending_tracks"))
+    assert state.attributes["is_own"] is False
+    assert state.attributes["owner_username"] == "bob"
+
+
+async def test_device_removed_from_response_is_removed_from_registry(
+    hass, aioclient_mock
+):
+    """A device that vanishes from a successful poll (deleted, or
+    transferred away -- trobar-server#442) is removed outright, not left
+    behind reading unavailable forever."""
+    entry = await _setup_entry(hass, aioclient_mock, [PHONE_DEVICE, WATCH_DEVICE])
+
+    device_registry = dr.async_get(hass)
+    assert device_registry.async_get_device(identifiers={(DOMAIN, "5")}) is not None
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(DEVICES_URL, json=[PHONE_DEVICE])
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+
+    assert device_registry.async_get_device(identifiers={(DOMAIN, "5")}) is None
+    assert _entity_id(hass, 5, "pending_tracks") is None
+
+
+async def test_device_added_in_later_refresh_gets_entities(hass, aioclient_mock):
+    """A device that first appears in a later poll (newly enrolled) gets
+    its sensors added without a reload."""
+    entry = await _setup_entry(hass, aioclient_mock, [PHONE_DEVICE])
+    assert _entity_id(hass, 5, "pending_tracks") is None
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(DEVICES_URL, json=[PHONE_DEVICE, WATCH_DEVICE])
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+
+    assert hass.states.get(_entity_id(hass, 5, "pending_tracks")) is not None
+
+
+async def test_whole_poll_failure_makes_entities_unavailable(hass, aioclient_mock):
+    """A failed poll (not a single device vanishing) makes every entity
+    unavailable -- the coordinator's own mechanism, not per-device logic."""
+    entry = await _setup_entry(hass, aioclient_mock, [PHONE_DEVICE])
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(DEVICES_URL, status=401)
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+
+    assert hass.states.get(_entity_id(hass, 1, "pending_tracks")).state == "unavailable"
