@@ -1,0 +1,43 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Se connecter à Trobar",
+        "description": "Indique l'URL de ton serveur Trobar et le token d'intégration en lecture seule créé dans Profil → Intégrations sur l'interface web de Trobar.",
+        "data": {
+          "url": "URL du serveur",
+          "api_token": "Token d'intégration"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Token invalide ou révoqué. Crée-en un nouveau dans Profil → Intégrations.",
+      "server_too_old": "Ce serveur Trobar est antérieur à la version 2.8.0, qui ne dispose pas de l'API d'intégration. Mets à jour le serveur pour continuer.",
+      "rate_limited": "Trop de tentatives échouées. Patiente quelques minutes avant de réessayer.",
+      "cannot_connect": "Connexion impossible. Vérifie l'URL du serveur.",
+      "unknown": "Erreur inattendue."
+    },
+    "abort": {
+      "already_configured": "Ce serveur Trobar est déjà configuré."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "pending_tracks": {
+        "name": "Morceaux en attente"
+      },
+      "last_synced": {
+        "name": "Dernière synchronisation"
+      },
+      "free_space": {
+        "name": "Espace libre"
+      },
+      "total_space": {
+        "name": "Espace total"
+      },
+      "unknown_tracks": {
+        "name": "Morceaux inconnus"
+      }
+    }
+  }
+}
