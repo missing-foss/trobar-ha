@@ -30,6 +30,13 @@ precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 missing-foss"
 SPDX-License-Identifier = "GPL-3.0-or-later"
 
+# --- hacs.json (JSON has no comment syntax) ---------------------------------
+[[annotations]]
+path = "hacs.json"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 missing-foss"
+SPDX-License-Identifier = "GPL-3.0-or-later"
+
 # --- custom_components/trobar/*.json (JSON has no comment syntax) ----------
 [[annotations]]
 path = [
