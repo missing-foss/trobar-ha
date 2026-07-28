@@ -18,9 +18,13 @@ precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 missing-foss"
 SPDX-License-Identifier = "GPL-3.0-or-later"
 
-# --- custom_components/trobar/manifest.json (JSON has no comment syntax) ---
+# --- custom_components/trobar/*.json (JSON has no comment syntax) ----------
 [[annotations]]
-path = "custom_components/trobar/manifest.json"
+path = [
+    "custom_components/trobar/manifest.json",
+    "custom_components/trobar/strings.json",
+    "custom_components/trobar/translations/en.json",
+]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 missing-foss"
 SPDX-License-Identifier = "GPL-3.0-or-later"
