@@ -18,6 +18,18 @@ precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 missing-foss"
 SPDX-License-Identifier = "GPL-3.0-or-later"
 
+# --- First-party brand artwork (PNG has no comment syntax) -----------------
+[[annotations]]
+path = [
+    "custom_components/trobar/brand/icon.png",
+    "custom_components/trobar/brand/icon@2x.png",
+    "custom_components/trobar/brand/logo.png",
+    "custom_components/trobar/brand/logo@2x.png",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 missing-foss"
+SPDX-License-Identifier = "GPL-3.0-or-later"
+
 # --- custom_components/trobar/*.json (JSON has no comment syntax) ----------
 [[annotations]]
 path = [
