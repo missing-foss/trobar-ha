@@ -1,0 +1,26 @@
+# REUSE (https://reuse.software) licensing for files that can't carry an inline
+# SPDX header — binaries and files without a comment syntax. First-party
+# source files carry their own header instead.
+version = 1
+
+# --- .gitignore (no header) -------------------------------------------------
+[[annotations]]
+path = ".gitignore"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 missing-foss"
+SPDX-License-Identifier = "GPL-3.0-or-later"
+
+# --- dev/forbidden-terms.txt (fed to grep -f as literal patterns, so no
+# inline header — a comment line would itself become a search pattern) ------
+[[annotations]]
+path = "dev/forbidden-terms.txt"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 missing-foss"
+SPDX-License-Identifier = "GPL-3.0-or-later"
+
+# --- custom_components/trobar/manifest.json (JSON has no comment syntax) ---
+[[annotations]]
+path = "custom_components/trobar/manifest.json"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 missing-foss"
+SPDX-License-Identifier = "GPL-3.0-or-later"

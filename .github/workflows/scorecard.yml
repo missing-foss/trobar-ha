@@ -1,0 +1,67 @@
+# SPDX-FileCopyrightText: 2026 missing-foss
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# OpenSSF Scorecard (#1): scores repo security posture (Branch-Protection,
+# Dependency-Update-Tool, SAST, Token-Permissions, Pinned-Dependencies, …) and
+# publishes the result to the Security tab + the public Scorecard API (the
+# badge). Weekly + on push to main. Treat the score as a punch-list, not a
+# vanity metric.
+#
+# NOTE (org Actions allowlist): ossf/scorecard-action and github/codeql-action
+# must be allowlisted in the org's Actions policy or this workflow will
+# startup_failure (same policy that makes gitleaks run as a plain `run:` step
+# in ci.yml). If the allowlist was set org-wide during trobar-server#123 it
+# already covers this repo. Full Branch-Protection scoring also wants a
+# classic PAT with repo scope stored as the SCORECARD_TOKEN secret; without
+# it that check reads as inconclusive.
+#
+# SAST caveat (this repo, for now): Python is fully CodeQL-supported, unlike
+# trobar-garmin's Monkey C — but this repo has no CodeQL Analyze workflow yet
+# (ci.yml runs ruff + reuse lint + leak scan + gitleaks, not a SARIF-producing
+# SAST scan), so Scorecard's SAST check will read low/inconclusive until one
+# exists. Worth adding in a follow-up once there's actual application logic
+# for it to analyze — not much value scanning a manifest and a docstring.
+name: Scorecard
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "27 6 * * 1" # Mondays, 06:27 UTC
+  push:
+    branches: [main]
+
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write # upload the SARIF result to code scanning
+      id-token: write # publish results to the Scorecard API (badge)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Run analysis
+        uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          repo_token: ${{ secrets.SCORECARD_TOKEN }}
+          publish_results: true
+
+      - name: Upload SARIF artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: scorecard-sarif
+          path: results.sarif
+          retention-days: 5
+
+      - name: Upload to code scanning
+        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
+        with:
+          sarif_file: results.sarif

@@ -1,0 +1,143 @@
+# SPDX-FileCopyrightText: 2026 missing-foss
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: Ready to merge gate
+
+# Two gates in ONE job, deliberately. This job's check-run name
+# (`require-label`) is registered as a required status check in four repos'
+# `protect-main` rulesets; a second check name would mean re-editing all four.
+# Extending this job needs no ruleset change at all.
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled, unlabeled]
+    branches: [main]
+  #
+  # NO `pull_request_review` TRIGGER — it looks like the obvious way to re-run
+  # this when an approval arrives, and it deadlocks the merge. Measured on #312:
+  #
+  #   - a `pull_request_review` run DOES attach its check run to the PR head
+  #     SHA (contrary to what the docs imply for non-`pull_request` events), so
+  #     that much works;
+  #   - BUT each event type produces its own check SUITE, and GitHub's merge
+  #     rollup does not collapse same-named runs across suites. With both
+  #     triggers the rollup carried three `require-label` entries —
+  #     FAILURE, FAILURE, SUCCESS — and refused the merge with
+  #     "Required status check require-label is failing", because the
+  #     `pull_request` stream's own last run had failed (it ran before the
+  #     approval existed) and NOTHING will ever re-run it without a push.
+  #
+  # One stream only, therefore. The re-run comes from `labeled`, which works
+  # because the review convention is approve FIRST, then apply the label — so
+  # by the time the label event fires, the approval exists.
+  #
+  # CONSEQUENCE worth knowing: after pushing to an ALREADY-labelled PR, no
+  # event re-evaluates this job (a push doesn't remove the label, and the
+  # approval it invalidates isn't dismissed either — see below). The reviewer
+  # removes and re-applies `ready-to-merge` to produce the trigger.
+
+permissions:
+  contents: read
+  pull-requests: read   # for the reviews API below
+
+jobs:
+  require-label:
+    runs-on: ubuntu-latest
+    steps:
+      # BOTH gates in one step, evaluated fully before exiting. Two steps read
+      # better in the UI but Actions stops at the first failure, so a PR missing
+      # the label AND an approval only ever learned about the label — you'd fix
+      # it, re-run, and only then discover the second problem. This gate's worst
+      # failure mode is "stuck green-but-failing for non-obvious reasons", so one
+      # run reporting everything that's missing is worth more than tidy steps.
+      - name: Require the ready-to-merge label AND an approval of the head commit
+        # Why the approval is enforced here rather than by the ruleset's own
+        # `required_approving_review_count`: the review bot account is
+        # deliberately read-only, and GitHub only COUNTS approvals from accounts
+        # with WRITE access. It records a read-only collaborator's approval but
+        # won't count it — verified directly, an APPROVED review pinned to the
+        # head SHA still produced "405 ... At least 1 approving review is
+        # required by reviewers with write access". Granting the bot push access
+        # to satisfy a process rule would move the trust boundary from its token
+        # to its account, so the approval is used as DATA and gated by a check we
+        # control instead. Same guarantee, no permission change.
+        #
+        # What the guarantee is: STALENESS. A label can never go stale (GitHub
+        # won't dismiss one), so a label alone attested to whatever SHA happened
+        # to be current — that's how #310 merged at a commit its approval didn't
+        # cover.
+        #
+        # The `select(.commit_id == $h)` below is the WHOLE guarantee — do not
+        # weaken it as redundant. `dismiss_stale_reviews_on_push` does NOT do
+        # this job: measured on this PR, an approval of an older commit still
+        # reads APPROVED (not DISMISSED) after a push, because dismissal doesn't
+        # fire while `required_approving_review_count` is 0 — which it is, since
+        # the native rule couldn't be satisfied by a read-only reviewer. So a
+        # stale approval remains in the API response indefinitely and is excluded
+        # only by that filter.
+        #
+        # head.sha, NOT github.sha: on `pull_request` events github.sha is the
+        # ephemeral merge commit, which no review can ever be pinned to.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ', ') }}
+          HAS_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'ready-to-merge') }}
+        run: |
+          set -euo pipefail
+          echo "Head SHA : $HEAD_SHA"
+          echo "Labels   : ${LABELS:-(none)}"
+
+          # --paginate emits one JSON array per page; `jq -s flatten` folds them
+          # into a single array. A plain `--paginate | jq '.[]'` would see
+          # concatenated arrays and break once a PR has a second page.
+          gh api "repos/$REPO/pulls/$PR_NUMBER/reviews" --paginate \
+            | jq -s 'flatten' > reviews.json
+
+          echo "Reviews  :"
+          jq -r 'if length == 0 then "  (none)"
+                 else .[] | "  \(.user.login) [\(.author_association)]: \(.state) @ \(.commit_id[0:8])" end' reviews.json
+
+          # Only reviews OF THIS COMMIT count, then the latest per reviewer — so
+          # someone who commented and later approved isn't counted as both. A
+          # dismissed review returns state DISMISSED, so a superseded approval
+          # stops counting on its own.
+          # THE REPO IS PUBLIC, so any GitHub user can submit a review. Only
+          # reviews from an account with a trust relationship to the repo count
+          # — otherwise a stranger's APPROVED would satisfy this gate, which is
+          # exactly the property the native rule provided and this replaces.
+          # (Not a path to a bad merge on its own: the label needs triage/write
+          # and merging needs write. But the attestation must mean what it says.)
+          #
+          # Filtered on author_association rather than a login allowlist,
+          # deliberately: the review account's own name contains a string the
+          # repo's leak scan forbids in tracked files, so it cannot be written
+          # here. Association is also the more robust predicate — it says
+          # "somebody this repo trusts" rather than naming one account, so it
+          # survives the reviewer changing. An arbitrary user is NONE, or
+          # CONTRIBUTOR once they've had a PR merged; neither qualifies.
+          read -r approved changes <<<"$(jq -r --arg h "$HEAD_SHA" '
+            ["OWNER", "MEMBER", "COLLABORATOR"] as $trusted
+            | [ .[] | select(.commit_id == $h and (.author_association as $a | $trusted | index($a))) ]
+            | group_by(.user.login)
+            | map(sort_by(.submitted_at) | last)
+            | "\(map(select(.state == "APPROVED")) | length) \(map(select(.state == "CHANGES_REQUESTED")) | length)"
+          ' reviews.json)"
+          echo "At head  : approvals=$approved changes-requested=$changes"
+
+          failed=0
+          if [ "$HAS_LABEL" != "true" ]; then
+            echo "::error::Missing the 'ready-to-merge' label."
+            failed=1
+          fi
+          if [ "$changes" -gt 0 ]; then
+            echo "::error::A reviewer requested changes on this commit ($HEAD_SHA). Address them and push."
+            failed=1
+          elif [ "$approved" -lt 1 ]; then
+            echo "::error::No approving review of the current head commit ($HEAD_SHA). Pushing to a reviewed PR dismisses its approval by design — comment on the PR naming the new head SHA to request a re-review."
+            failed=1
+          fi
+          [ "$failed" -eq 0 ] || exit 1
+          echo "OK: labelled, and approved at head."
