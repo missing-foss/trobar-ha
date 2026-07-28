@@ -25,15 +25,18 @@ pip install -r requirements-dev.txt
 dev/verify.sh
 ```
 
-`dev/verify.sh` covers everything CI's `validate` job checks (lint, the
-household leak scan, gitleaks, REUSE). It does **not** run `hassfest` —
-that needs Docker and only runs in CI; see `.github/workflows/ci.yml`.
+`dev/verify.sh` covers everything CI's `validate` job checks (lint,
+tests, the household leak scan, gitleaks, REUSE). It does **not** run
+`hassfest` — that needs Docker and only runs in CI; see
+`.github/workflows/ci.yml`.
 
 ## Status
 
-Still Phase A (repo bring-up) — no config flow, coordinator, or entities
-yet. See [trobar-ha#1](https://github.com/missing-foss/trobar-ha/issues/1)
-for the full bring-up checklist and phasing, and
+Working: config flow, coordinator, and sensor entities are all in place
+(see the [README](README.md#status) for what that covers). What's left is
+Phase B of [trobar-ha#1](https://github.com/missing-foss/trobar-ha/issues/1)
+— device triggers, notifications, a default-store HACS listing — deferred
+until the integration has seen some real use. See
 [trobar-server#270](https://github.com/missing-foss/trobar-server/issues/270)
 for the integration's design and why a `media_player` model was rejected —
 this is a monitoring/automation surface over the sync lifecycle, not a
