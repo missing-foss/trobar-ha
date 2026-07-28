@@ -36,6 +36,7 @@ path = [
     "custom_components/trobar/manifest.json",
     "custom_components/trobar/strings.json",
     "custom_components/trobar/translations/en.json",
+    "custom_components/trobar/translations/fr.json",
 ]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 missing-foss"
