@@ -2,7 +2,7 @@
   "domain": "trobar",
   "name": "Trobar",
   "codeowners": ["@missing-foss"],
-  "config_flow": false,
+  "config_flow": true,
   "documentation": "https://github.com/missing-foss/trobar-ha",
   "integration_type": "hub",
   "iot_class": "local_polling",

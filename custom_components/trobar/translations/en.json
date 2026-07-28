@@ -1,0 +1,24 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Trobar",
+        "description": "Enter your Trobar server's URL and the read-only integration token created at Profile → Integrations in the Trobar web UI.",
+        "data": {
+          "url": "Server URL",
+          "api_token": "Integration token"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid or revoked token. Create a new one at Profile → Integrations.",
+      "server_too_old": "This Trobar server is older than 2.8.0, which doesn't have the integration API. Upgrade the server to continue.",
+      "rate_limited": "Too many failed attempts. Wait a few minutes before trying again.",
+      "cannot_connect": "Could not connect. Check the server URL.",
+      "unknown": "Unexpected error."
+    },
+    "abort": {
+      "already_configured": "This Trobar server is already configured."
+    }
+  }
+}

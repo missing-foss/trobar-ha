@@ -16,7 +16,8 @@
 #   repo). This may need an explicit allowlist addition before it runs at
 #   all — see trobar-ha#1. If it startup_failures, that's the known,
 #   anticipated cause, not a bug in this workflow.
-# - `validate` — lint (ruff), the household leak scan, gitleaks, and REUSE
+# - `validate` — lint (ruff), tests (pytest-homeassistant-custom-component,
+#   from trobar-ha#4), the household leak scan, gitleaks, and REUSE
 #   (per-file SPDX licensing).
 name: ci
 on:
@@ -46,10 +47,14 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Install dev dependencies
+        run: pip install -r requirements-dev.txt
+
       - name: Lint (ruff)
-        run: |
-          pip install -r requirements-dev.txt
-          ruff check .
+        run: ruff check .
+
+      - name: Tests (pytest)
+        run: pytest
 
       - name: Leak scan (household infra must never ship)
         run: |

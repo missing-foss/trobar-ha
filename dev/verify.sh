@@ -21,6 +21,16 @@ else
   echo "SKIP (ruff not installed — pip install -r requirements-dev.txt) — CI still runs it"
 fi
 
+step "tests (pytest)"
+# Checked via the plugin import, not just `command -v pytest`: a `pytest`
+# binary from an unrelated project's venv earlier on PATH would otherwise
+# look "installed" here and then fail on the missing HA test harness.
+if python3 -c "import pytest_homeassistant_custom_component" >/dev/null 2>&1; then
+  pytest && echo ok || fail=1
+else
+  echo "SKIP (pytest-homeassistant-custom-component not installed — pip install -r requirements-dev.txt) — CI still runs it"
+fi
+
 step "leak scan (household infra must never ship)"
 # #404: `grep -f` on a missing terms file exits 2 (swallowed by 2>/dev/null
 # below), the `if` is then false, and this printed "ok" having scanned
