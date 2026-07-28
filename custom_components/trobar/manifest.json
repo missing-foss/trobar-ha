@@ -1,0 +1,12 @@
+{
+  "domain": "trobar",
+  "name": "Trobar",
+  "codeowners": ["@missing-foss"],
+  "config_flow": false,
+  "documentation": "https://github.com/missing-foss/trobar-ha",
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/missing-foss/trobar-ha/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

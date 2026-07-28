@@ -1,0 +1,82 @@
+# SPDX-FileCopyrightText: 2026 missing-foss
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# trobar-ha CI: the pre-merge verify gate. Runs on every push/PR.
+#
+# Two jobs:
+# - `hassfest` — Home Assistant's own integration validator (manifest
+#   schema, codeowners format, requirements, etc.). Uses the upstream
+#   composite action, which just runs a Docker image against the checked-out
+#   repo — no inputs needed, it finds custom_components/ itself.
+#   NOTE (org Actions allowlist): home-assistant/actions is a third-party
+#   action; the org's Actions policy only allows GitHub-owned +
+#   verified-creator actions (same restriction that makes gitleaks/reuse
+#   below plain `run:` steps rather than marketplace actions in every sibling
+#   repo). This may need an explicit allowlist addition before it runs at
+#   all — see trobar-ha#1. If it startup_failures, that's the known,
+#   anticipated cause, not a bug in this workflow.
+# - `validate` — lint (ruff), the household leak scan, gitleaks, and REUSE
+#   (per-file SPDX licensing).
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  GITLEAKS_VERSION: "8.24.3"
+  GITLEAKS_SHA256: "9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c"
+
+jobs:
+  hassfest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: home-assistant/actions/hassfest@4b258cf2bf1668d8e0adcb6b2be96b6cda36f42f # 1.0.0
+
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Lint (ruff)
+        run: |
+          pip install -r requirements-dev.txt
+          ruff check .
+
+      - name: Leak scan (household infra must never ship)
+        run: |
+          # #404: a missing terms file makes `grep -f` exit 2, the `if` below
+          # false, and the step green having scanned nothing — fail-open.
+          [ -s dev/forbidden-terms.txt ] || { echo "::error::dev/forbidden-terms.txt missing or empty"; exit 1; }
+          if git ls-files | xargs grep -InE -f dev/forbidden-terms.txt \
+               | grep -viE "^[^:]*\.lock:|^dev/forbidden-terms\.txt:"; then
+            echo "::error::forbidden term(s) found above"; exit 1
+          fi
+
+      - name: Secret scan
+        # Binary download rather than gitleaks-action: the org Actions policy
+        # only allows GitHub-owned + verified-creator actions. sha256-verified
+        # rather than piped straight into extraction.
+        run: |
+          set -euo pipefail
+          v="$GITLEAKS_VERSION"
+          curl -sSL -o gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${v}/gitleaks_${v}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
+          rm gitleaks.tar.gz
+          ./gitleaks git --no-banner .
+
+      - name: REUSE lint (per-file SPDX licensing)
+        # Python tool; the org Actions policy blocks fsfe/reuse-action, so run it
+        # via pipx (preinstalled on the runner). The charset-normalizer extra
+        # supplies reuse's encoding detection without needing libmagic.
+        run: pipx run --spec 'reuse[charset-normalizer]' reuse lint

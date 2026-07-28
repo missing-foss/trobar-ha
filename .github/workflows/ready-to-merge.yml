@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: 2026 missing-foss
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: Ready to merge gate
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled, unlabeled]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  require-label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for ready-to-merge label
+        env:
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ', ') }}
+        run: |
+          echo "Labels: $LABELS"
+          if [ "${{ contains(github.event.pull_request.labels.*.name, 'ready-to-merge') }}" != "true" ]; then
+            echo "::error::This PR is missing the 'ready-to-merge' label — it must be reviewed and labeled before merge."
+            exit 1
+          fi

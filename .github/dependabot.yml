@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: 2026 missing-foss
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Dependabot version updates. Security alerts (Dependabot alerts) scan the
+# dependency graph automatically regardless of this file; this config only
+# governs scheduled version-bump PRs, kept conservative (weekly, capped) so
+# it doesn't flood the verify-gate PR flow. See trobar-server issue #40.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
