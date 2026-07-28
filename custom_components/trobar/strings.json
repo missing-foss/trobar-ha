@@ -20,5 +20,24 @@
     "abort": {
       "already_configured": "This Trobar server is already configured."
     }
+  },
+  "entity": {
+    "sensor": {
+      "pending_tracks": {
+        "name": "Pending tracks"
+      },
+      "last_synced": {
+        "name": "Last synced"
+      },
+      "free_space": {
+        "name": "Free space"
+      },
+      "total_space": {
+        "name": "Total space"
+      },
+      "unknown_tracks": {
+        "name": "Unknown tracks"
+      }
+    }
   }
 }
