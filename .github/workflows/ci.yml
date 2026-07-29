@@ -4,7 +4,7 @@
 
 # trobar-ha CI: the pre-merge verify gate. Runs on every push/PR.
 #
-# Two jobs:
+# Three jobs:
 # - `hassfest` — Home Assistant's own integration validator (manifest
 #   schema, codeowners format, requirements, etc.). Uses the upstream
 #   composite action, which just runs a Docker image against the checked-out
@@ -13,12 +13,17 @@
 #   action; the org's Actions policy only allows GitHub-owned +
 #   verified-creator actions (same restriction that makes gitleaks/reuse
 #   below plain `run:` steps rather than marketplace actions in every sibling
-#   repo). This may need an explicit allowlist addition before it runs at
-#   all — see trobar-ha#1. If it startup_failures, that's the known,
-#   anticipated cause, not a bug in this workflow.
+#   repo). This needed an explicit allowlist addition before it would run —
+#   see trobar-ha#1 — since done; the same may apply to `hacs` below.
 # - `validate` — lint (ruff), tests (pytest-homeassistant-custom-component,
 #   from trobar-ha#4), the household leak scan, gitleaks, and REUSE
 #   (per-file SPDX licensing).
+# - `hacs` — HACS's own repository validator (trobar-ha#1 Phase B): checks
+#   hacs.json, the manifest, and everything else the HACS store itself
+#   requires before it'll list the integration. Not yet a required status
+#   check in the ruleset — add it once a green run confirms the name and
+#   that the org allowlist doesn't block it, same caution as hassfest's own
+#   entry above.
 name: ci
 on:
   push:
@@ -38,6 +43,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: home-assistant/actions/hassfest@e3fb68ebda13d88a0d695082f471ba2c83d025fb # master
+
+  hacs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: hacs/action@1ebf01c408f29afcb6406bd431bc98fd8cbb15aa # main
+        with:
+          category: integration
 
   validate:
     runs-on: ubuntu-latest
