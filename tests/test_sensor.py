@@ -234,8 +234,10 @@ async def test_unknown_fields_are_tolerated(hass, aioclient_mock):
     rather than validating the payload's exact shape, so a field the
     server adds later -- one #455's own gate explicitly allows -- must
     never break setup. Unknown keys go at the top level and inside both
-    nested objects the sensors read from (sync_status, autofit), since
-    each is parsed independently."""
+    nested objects in the response: sync_status, which the sensors
+    read from, and autofit, which nothing reads yet -- included anyway
+    since it's part of the documented shape and a future sensor could
+    read it."""
     device = copy.deepcopy(PHONE_DEVICE)
     device["future_top_level_field"] = "surprise"
     device["sync_status"]["future_sync_field"] = 42
