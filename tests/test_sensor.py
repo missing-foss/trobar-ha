@@ -227,3 +227,23 @@ async def test_whole_poll_failure_makes_entities_unavailable(hass, aioclient_moc
     await hass.async_block_till_done()
 
     assert hass.states.get(_entity_id(hass, 1, "pending_tracks")).state == "unavailable"
+
+
+async def test_unknown_fields_are_tolerated(hass, aioclient_mock):
+    """#18: this integration reads specific keys off the response dict
+    rather than validating the payload's exact shape, so a field the
+    server adds later -- one #455's own gate explicitly allows -- must
+    never break setup. Unknown keys go at the top level and inside both
+    nested objects the sensors read from (sync_status, autofit), since
+    each is parsed independently."""
+    device = copy.deepcopy(PHONE_DEVICE)
+    device["future_top_level_field"] = "surprise"
+    device["sync_status"]["future_sync_field"] = 42
+    device["autofit"]["future_autofit_field"] = True
+
+    await _setup_entry(hass, aioclient_mock, [device])
+
+    assert hass.states.get(_entity_id(hass, 1, "pending_tracks")).state == "10"
+    assert hass.states.get(_entity_id(hass, 1, "unknown_tracks")).state == "223"
+    assert hass.states.get(_entity_id(hass, 1, "owner")).state == "alice"
+    assert hass.states.get(_entity_id(hass, 1, "free_space")).state != "unavailable"
