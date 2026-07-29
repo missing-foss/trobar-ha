@@ -36,10 +36,17 @@ device per Trobar device with six sensors each: pending tracks, last
 synced, free space, total space, unknown tracks, and owner (diagnostic).
 Ships in English and French.
 
-Not yet done: device triggers, notifications, and a default-store HACS
-listing — that's Phase B of
-[trobar-ha#1](https://github.com/missing-foss/trobar-ha/issues/1), deferred
-until the integration has seen some real use.
+A **"finished syncing" device trigger** is buildable from the automation
+UI ("When… Trobar device finished syncing"), no template needed.
+"Storage low" and "sync started" don't need a dedicated trigger — Home
+Assistant's own generic sensor trigger already offers "value above/below"
+on the storage and pending-tracks sensors. A "hasn't synced in N days"
+watchdog isn't a state transition, so it's better built with Home
+Assistant's own `template` trigger than modelled here.
+
+Not yet done: notifications and a default-store HACS listing — that's
+Phase B of [trobar-ha#1](https://github.com/missing-foss/trobar-ha/issues/1),
+deferred until the integration has seen some real use.
 
 The integration depends on
 [trobar-server#446](https://github.com/missing-foss/trobar-server/issues/446)
