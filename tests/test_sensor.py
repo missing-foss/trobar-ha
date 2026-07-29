@@ -128,6 +128,27 @@ async def test_delegated_device_exposes_ownership_attributes(hass, aioclient_moc
     assert state.attributes["owner_username"] == "bob"
 
 
+async def test_own_device_name_has_no_owner_suffix(hass, aioclient_mock):
+    """#17: the token owner's own devices aren't suffixed -- it would just
+    be redundant noise in the common single-user case."""
+    await _setup_entry(hass, aioclient_mock, [PHONE_DEVICE])
+
+    device_registry = dr.async_get(hass)
+    device = device_registry.async_get_device(identifiers={(DOMAIN, "1")})
+    assert device.name == "Test Phone"
+
+
+async def test_delegated_device_name_is_suffixed_with_owner(hass, aioclient_mock):
+    """#17: a device belonging to another household member gets the owner
+    appended to its HA device name, disambiguating it in the device list
+    without relying on a card author to surface the is_own attribute."""
+    await _setup_entry(hass, aioclient_mock, [WATCH_DEVICE])
+
+    device_registry = dr.async_get(hass)
+    device = device_registry.async_get_device(identifiers={(DOMAIN, "5")})
+    assert device.name == "Test Watch (bob)"
+
+
 async def test_device_removed_from_response_is_removed_from_registry(
     hass, aioclient_mock
 ):
