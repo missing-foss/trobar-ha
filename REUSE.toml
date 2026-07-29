@@ -25,6 +25,8 @@ path = [
     "custom_components/trobar/brand/icon@2x.png",
     "custom_components/trobar/brand/logo.png",
     "custom_components/trobar/brand/logo@2x.png",
+    "custom_components/trobar/brand/dark_logo.png",
+    "custom_components/trobar/brand/dark_logo@2x.png",
 ]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 missing-foss"
