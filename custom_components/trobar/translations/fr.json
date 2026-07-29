@@ -37,6 +37,9 @@
       },
       "unknown_tracks": {
         "name": "Morceaux inconnus"
+      },
+      "owner": {
+        "name": "Propriétaire"
       }
     }
   }

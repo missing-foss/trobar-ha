@@ -4,7 +4,7 @@
 
 """Sensor platform for Trobar (trobar-ha#5).
 
-Five sensors per Trobar device, all reading from the shared coordinator's
+Six sensors per Trobar device, all reading from the shared coordinator's
 last successful poll -- see trobar-ha#2 for the payload these are built
 against and the null-handling notes that follow from it.
 """
@@ -22,7 +22,7 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import UnitOfInformation
+from homeassistant.const import EntityCategory, UnitOfInformation
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -35,35 +35,6 @@ from .const import DOMAIN
 from .coordinator import TrobarDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
-
-
-def _device_display_name(device: dict[str, Any]) -> str:
-    """#17: append the owner for devices that aren't the token owner's own.
-
-    A household's token sees every member's devices (is_own: false for the
-    others), the same as the token owner's own web UI -- so an unqualified
-    "Pixel" is ambiguous the moment more than one member has one. Left off
-    for the token owner's own devices, where it would just be redundant
-    noise in what trobar-ha#2's sample suggests is the common case: a
-    single-user install.
-
-    "name (owner)" rather than the possessive "owner's name" deliberately:
-    this integration ships English and French (trobar-ha#9), and device
-    names are computed here, not looked up through strings.json, so they
-    aren't covered by translation at all -- the format needs to read fine
-    in both languages rather than leaning on English-specific grammar.
-
-    #17 also considered seeding HA's suggested_area with the owner's name,
-    which would satisfy the literal originating request (map devices to
-    people) with a one-line change -- deliberately not done. Areas are
-    spatial and shared with every other integration; seeding them with
-    people's names pollutes a registry this integration doesn't own, and
-    unlike a device name, a suggested area can't be corrected later if
-    that turns out to be the wrong call.
-    """
-    if device["is_own"]:
-        return device["name"]
-    return f"{device['name']} ({device['owner_username']})"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -127,6 +98,21 @@ SENSOR_DESCRIPTIONS: tuple[TrobarSensorEntityDescription, ...] = (
         translation_key="unknown_tracks",
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda device: device["unknown_track_count"],
+    ),
+    TrobarSensorEntityDescription(
+        # #17: Option C as decided -- a diagnostic sensor, not a device-name
+        # change (Option A, declined) or a suggested_area (Option B,
+        # declined). owner_username is never null: devices.owner_user_id is
+        # NOT NULL server-side and the endpoint inner-joins on it, so an
+        # ownerless device would be absent from the response entirely
+        # rather than present with a null owner -- no available_fn needed.
+        # Reads through the coordinator like every other sensor here, so a
+        # trobar-server#442 transfer (which changes ownership at runtime)
+        # is picked up on the next refresh rather than frozen at setup.
+        key="owner",
+        translation_key="owner",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda device: device["owner_username"],
     ),
 )
 
@@ -210,7 +196,7 @@ class TrobarSensor(CoordinatorEntity[TrobarDataUpdateCoordinator], SensorEntity)
             return None
         return DeviceInfo(
             identifiers={(DOMAIN, str(self._device_id))},
-            name=_device_display_name(device),
+            name=device["name"],
             manufacturer="Trobar",
             model=device["device_type"],
         )

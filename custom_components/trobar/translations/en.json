@@ -37,6 +37,9 @@
       },
       "unknown_tracks": {
         "name": "Unknown tracks"
+      },
+      "owner": {
+        "name": "Owner"
       }
     }
   }

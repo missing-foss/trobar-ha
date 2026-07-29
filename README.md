@@ -32,9 +32,9 @@ for the full design RFC and why.
 **Working, installable, not yet in the HACS default store.** The
 integration adds via config flow (URL + read-only token, validated live),
 then polls `GET /api/integrations/devices` and creates one Home Assistant
-device per Trobar device with five sensors each: pending tracks, last
-synced, free space, total space, unknown tracks. Ships in English and
-French.
+device per Trobar device with six sensors each: pending tracks, last
+synced, free space, total space, unknown tracks, and owner (diagnostic).
+Ships in English and French.
 
 Not yet done: device triggers, notifications, and a default-store HACS
 listing — that's Phase B of

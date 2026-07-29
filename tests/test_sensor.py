@@ -6,7 +6,7 @@
 
 import copy
 
-from homeassistant.const import CONF_API_TOKEN, CONF_URL
+from homeassistant.const import CONF_API_TOKEN, CONF_URL, EntityCategory
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -128,25 +128,58 @@ async def test_delegated_device_exposes_ownership_attributes(hass, aioclient_moc
     assert state.attributes["owner_username"] == "bob"
 
 
-async def test_own_device_name_has_no_owner_suffix(hass, aioclient_mock):
-    """#17: the token owner's own devices aren't suffixed -- it would just
-    be redundant noise in the common single-user case."""
+async def test_device_name_is_never_owner_suffixed(hass, aioclient_mock):
+    """#17's decision: Option A (touching the device name) was explicitly
+    declined, for both an owned and a delegated device -- names stay
+    exactly as Trobar reports them regardless of ownership."""
+    await _setup_entry(hass, aioclient_mock, [PHONE_DEVICE, WATCH_DEVICE])
+
+    device_registry = dr.async_get(hass)
+    assert device_registry.async_get_device(
+        identifiers={(DOMAIN, "1")}).name == "Test Phone"
+    assert device_registry.async_get_device(
+        identifiers={(DOMAIN, "5")}).name == "Test Watch"
+
+
+async def test_owner_sensor_reports_username_for_multiple_owners(hass, aioclient_mock):
+    """#17's decided shape: a diagnostic sensor per device, state = the
+    owner's username. Synthesised as a multi-owner response since the #2
+    sample is single-user and can't exercise this."""
+    await _setup_entry(hass, aioclient_mock, [PHONE_DEVICE, WATCH_DEVICE])
+
+    assert hass.states.get(_entity_id(hass, 1, "owner")).state == "alice"
+    assert hass.states.get(_entity_id(hass, 5, "owner")).state == "bob"
+
+
+async def test_owner_sensor_is_diagnostic(hass, aioclient_mock):
+    """Diagnostic category, not a regular sensor -- per #17's decision,
+    chosen over duplicating the value across every sibling sensor's
+    attributes precisely so it appears under Diagnostics with its own
+    stable entity_id."""
     await _setup_entry(hass, aioclient_mock, [PHONE_DEVICE])
 
-    device_registry = dr.async_get(hass)
-    device = device_registry.async_get_device(identifiers={(DOMAIN, "1")})
-    assert device.name == "Test Phone"
+    registry = er.async_get(hass)
+    entry = registry.async_get(_entity_id(hass, 1, "owner"))
+    assert entry.entity_category is EntityCategory.DIAGNOSTIC
 
 
-async def test_delegated_device_name_is_suffixed_with_owner(hass, aioclient_mock):
-    """#17: a device belonging to another household member gets the owner
-    appended to its HA device name, disambiguating it in the device list
-    without relying on a card author to surface the is_own attribute."""
-    await _setup_entry(hass, aioclient_mock, [WATCH_DEVICE])
+async def test_owner_sensor_follows_transfer_on_next_refresh(hass, aioclient_mock):
+    """trobar-server#442 device-to-device transfer changes owner_user_id
+    server-side at runtime -- the owner sensor must follow the coordinator's
+    refresh rather than freezing whatever it read at setup."""
+    entry = await _setup_entry(hass, aioclient_mock, [PHONE_DEVICE])
+    assert hass.states.get(_entity_id(hass, 1, "owner")).state == "alice"
 
-    device_registry = dr.async_get(hass)
-    device = device_registry.async_get_device(identifiers={(DOMAIN, "5")})
-    assert device.name == "Test Watch (bob)"
+    transferred = copy.deepcopy(PHONE_DEVICE)
+    transferred["owner_user_id"] = 2
+    transferred["owner_username"] = "bob"
+    transferred["is_own"] = False
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(DEVICES_URL, json=[transferred])
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+
+    assert hass.states.get(_entity_id(hass, 1, "owner")).state == "bob"
 
 
 async def test_device_removed_from_response_is_removed_from_registry(
