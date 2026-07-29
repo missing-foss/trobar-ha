@@ -42,5 +42,10 @@
         "name": "Propriétaire"
       }
     }
+  },
+  "device_automation": {
+    "trigger_type": {
+      "sync_completed": "{entity_name} a terminé sa synchronisation"
+    }
   }
 }
