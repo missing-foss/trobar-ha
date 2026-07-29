@@ -4,7 +4,7 @@
 
 """Sensor platform for Trobar (trobar-ha#5).
 
-Five sensors per Trobar device, all reading from the shared coordinator's
+Six sensors per Trobar device, all reading from the shared coordinator's
 last successful poll -- see trobar-ha#2 for the payload these are built
 against and the null-handling notes that follow from it.
 """
@@ -22,7 +22,7 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import UnitOfInformation
+from homeassistant.const import EntityCategory, UnitOfInformation
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -98,6 +98,21 @@ SENSOR_DESCRIPTIONS: tuple[TrobarSensorEntityDescription, ...] = (
         translation_key="unknown_tracks",
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda device: device["unknown_track_count"],
+    ),
+    TrobarSensorEntityDescription(
+        # #17: Option C as decided -- a diagnostic sensor, not a device-name
+        # change (Option A, declined) or a suggested_area (Option B,
+        # declined). owner_username is never null: devices.owner_user_id is
+        # NOT NULL server-side and the endpoint inner-joins on it, so an
+        # ownerless device would be absent from the response entirely
+        # rather than present with a null owner -- no available_fn needed.
+        # Reads through the coordinator like every other sensor here, so a
+        # trobar-server#442 transfer (which changes ownership at runtime)
+        # is picked up on the next refresh rather than frozen at setup.
+        key="owner",
+        translation_key="owner",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda device: device["owner_username"],
     ),
 )
 
