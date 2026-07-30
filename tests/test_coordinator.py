@@ -18,6 +18,14 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.trobar.const import DOMAIN
 
 DEVICES_URL = "http://trobar.local/api/integrations/devices"
+SERVER_URL = "http://trobar.local/api/integrations/server"
+SAMPLE_SERVER_STATUS = {
+    "version": "2.9.0",
+    "track_count": 100,
+    "total_bytes": 5_000_000_000,
+    "scan_running": False,
+    "last_scan_at": None,
+}
 
 
 def _entry(hass) -> MockConfigEntry:
@@ -57,6 +65,7 @@ async def test_a_401_after_a_successful_setup_starts_a_reauth_flow(
     # it directly (see update_coordinator.py's own two call sites this
     # integration relies on). Both must work.
     aioclient_mock.get(DEVICES_URL, json=[])
+    aioclient_mock.get(SERVER_URL, json=SAMPLE_SERVER_STATUS)
     entry = _entry(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
@@ -64,7 +73,7 @@ async def test_a_401_after_a_successful_setup_starts_a_reauth_flow(
 
     aioclient_mock.clear_requests()
     aioclient_mock.get(DEVICES_URL, status=401)
-    await entry.runtime_data.async_refresh()
+    await entry.runtime_data.devices.async_refresh()
     await hass.async_block_till_done()
 
     assert _reauth_flow_pending(hass, entry.entry_id)

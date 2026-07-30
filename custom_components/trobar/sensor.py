@@ -2,11 +2,14 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Sensor platform for Trobar (trobar-ha#5).
+"""Sensor platform for Trobar (trobar-ha#5, server sensors in #25).
 
 Six sensors per Trobar device, all reading from the shared coordinator's
 last successful poll -- see trobar-ha#2 for the payload these are built
-against and the null-handling notes that follow from it.
+against and the null-handling notes that follow from it. Four more sensors
+live on the hub-level "server" device (trobar-ha#25), reading from the
+separate server coordinator -- see coordinator.py's module docstring for
+why that's two coordinators, not one.
 """
 
 from __future__ import annotations
@@ -31,8 +34,8 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import TrobarConfigEntry
 from .api import parse_server_timestamp
-from .const import DOMAIN
-from .coordinator import TrobarDataUpdateCoordinator
+from .const import DOMAIN, server_device_identifier
+from .coordinator import TrobarDataUpdateCoordinator, TrobarServerDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -117,6 +120,86 @@ SENSOR_DESCRIPTIONS: tuple[TrobarSensorEntityDescription, ...] = (
 )
 
 
+@dataclass(frozen=True, kw_only=True)
+class TrobarServerSensorEntityDescription(SensorEntityDescription):
+    """Server-metrics counterpart of TrobarSensorEntityDescription above --
+    no available_fn, since none of #475's fields have a permanent-null
+    case the way a Garmin watch's storage does; a missing/failed poll is
+    already handled by CoordinatorEntity's own availability, not per-field."""
+
+    value_fn: Callable[[dict[str, Any]], Any]
+
+
+SERVER_SENSOR_DESCRIPTIONS: tuple[TrobarServerSensorEntityDescription, ...] = (
+    TrobarServerSensorEntityDescription(
+        key="version",
+        translation_key="server_version",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda data: data["version"],
+    ),
+    TrobarServerSensorEntityDescription(
+        key="tracks",
+        translation_key="server_tracks",
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda data: data["track_count"],
+    ),
+    TrobarServerSensorEntityDescription(
+        key="library_size",
+        translation_key="server_library_size",
+        device_class=SensorDeviceClass.DATA_SIZE,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfInformation.BYTES,
+        suggested_unit_of_measurement=UnitOfInformation.GIGABYTES,
+        suggested_display_precision=1,
+        value_fn=lambda data: data["total_bytes"],
+    ),
+    TrobarServerSensorEntityDescription(
+        key="last_scan",
+        translation_key="server_last_scan",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        # #475's own null semantics (trobar-server docs): null means "no
+        # completed scan to report on right now" -- while a scan is
+        # running, not "unknown". A real, meaningful null, so this stays
+        # available and reads as HA's normal empty timestamp state,
+        # same reasoning as sync_status.last_synced_at above.
+        value_fn=lambda data: parse_server_timestamp(data["last_scan_at"]),
+    ),
+)
+
+
+class TrobarServerSensor(
+    CoordinatorEntity[TrobarServerDataUpdateCoordinator], SensorEntity
+):
+    """One sensor for one field of the hub-level server device."""
+
+    entity_description: TrobarServerSensorEntityDescription
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: TrobarServerDataUpdateCoordinator,
+        description: TrobarServerSensorEntityDescription,
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._attr_unique_id = f"server_{description.key}"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={server_device_identifier(self.coordinator.config_entry.entry_id)},
+            name="Trobar Server",
+            manufacturer="Trobar",
+            sw_version=(self.coordinator.data or {}).get("version"),
+        )
+
+    @property
+    def native_value(self) -> Any:
+        if self.coordinator.data is None:
+            return None
+        return self.entity_description.value_fn(self.coordinator.data)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: TrobarConfigEntry,
@@ -124,17 +207,26 @@ async def async_setup_entry(
 ) -> None:
     """Set up Trobar sensors for a config entry.
 
-    Entities are added for whatever devices the coordinator already knows
-    about, then kept in sync on every successful refresh: a device id
-    that's newly present gets its sensors added, one that's newly absent
-    has its HA device (and therefore its entities) removed outright.
-    Removal, not "leave unavailable forever", because a device
+    Per-device entities are added for whatever devices the coordinator
+    already knows about, then kept in sync on every successful refresh: a
+    device id that's newly present gets its sensors added, one that's
+    newly absent has its HA device (and therefore its entities) removed
+    outright. Removal, not "leave unavailable forever", because a device
     disappearing from the response isn't always transient -- a
     device-to-device transfer (trobar-server#442) *deletes* the old
     device server-side, permanently, so unavailable-forever would be a
     standing false report that something is merely offline.
+
+    The four server sensors (trobar-ha#25) are simpler: exactly one
+    "server" device exists for the lifetime of the config entry, so
+    they're added once, unconditionally, with no add/remove tracking.
     """
-    coordinator = entry.runtime_data
+    async_add_entities(
+        TrobarServerSensor(entry.runtime_data.server, description)
+        for description in SERVER_SENSOR_DESCRIPTIONS
+    )
+
+    coordinator = entry.runtime_data.devices
     known_device_ids: set[int] = set()
 
     def _sync_devices() -> None:
