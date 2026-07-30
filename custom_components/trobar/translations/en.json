@@ -3,9 +3,16 @@
     "step": {
       "user": {
         "title": "Connect to Trobar",
-        "description": "Enter your Trobar server's URL and the read-only integration token created at Profile → Integrations in the Trobar web UI.",
+        "description": "Enter your Trobar server's URL and an integration token created at Profile → Integrations in the Trobar web UI (admin account required).",
         "data": {
           "url": "Server URL",
+          "api_token": "Integration token"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate Trobar",
+        "description": "The token for {url} was rejected — it may have been revoked. Tokens must now be created by an admin account (Profile → Integrations). Enter a replacement.",
+        "data": {
           "api_token": "Integration token"
         }
       }
@@ -18,7 +25,8 @@
       "unknown": "Unexpected error."
     },
     "abort": {
-      "already_configured": "This Trobar server is already configured."
+      "already_configured": "This Trobar server is already configured.",
+      "reauth_successful": "Re-authentication was successful."
     }
   },
   "entity": {

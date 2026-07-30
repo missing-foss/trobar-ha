@@ -3,9 +3,16 @@
     "step": {
       "user": {
         "title": "Se connecter à Trobar",
-        "description": "Indiquez l'URL de votre serveur Trobar et le token d'intégration en lecture seule créé dans Profil → Intégrations sur l'interface web de Trobar.",
+        "description": "Indiquez l'URL de votre serveur Trobar et un token d'intégration créé dans Profil → Intégrations sur l'interface web de Trobar (compte administrateur requis).",
         "data": {
           "url": "URL du serveur",
+          "api_token": "Token d'intégration"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Ré-authentifier Trobar",
+        "description": "Le token pour {url} a été rejeté — il a peut-être été révoqué. Les tokens doivent désormais être créés par un compte administrateur (Profil → Intégrations). Indiquez-en un nouveau.",
+        "data": {
           "api_token": "Token d'intégration"
         }
       }
@@ -18,7 +25,8 @@
       "unknown": "Erreur inattendue."
     },
     "abort": {
-      "already_configured": "Ce serveur Trobar est déjà configuré."
+      "already_configured": "Ce serveur Trobar est déjà configuré.",
+      "reauth_successful": "La ré-authentification a réussi."
     }
   },
   "entity": {

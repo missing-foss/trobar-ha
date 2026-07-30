@@ -16,6 +16,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import (
@@ -64,16 +65,27 @@ class TrobarDataUpdateCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]
     async def _async_update_data(self) -> dict[int, dict[str, Any]]:
         """Fetch and re-key by device id.
 
-        A failure here (any TrobarApiError -- auth, rate limit, server
-        too old, connection) becomes UpdateFailed, which the coordinator
-        turns into every entity going unavailable as a whole. That's the
-        right behaviour for "the poll itself failed" (trobar-ha#5); a
-        single device vanishing from an otherwise-successful response is
-        a different case, handled in sensor.py by comparing device-id
-        sets between refreshes, not here.
+        A failure here (rate limit, server too old, connection) becomes
+        UpdateFailed, which the coordinator turns into every entity going
+        unavailable as a whole. That's the right behaviour for "the poll
+        itself failed" (trobar-ha#5); a single device vanishing from an
+        otherwise-successful response is a different case, handled in
+        sensor.py by comparing device-id sets between refreshes, not here.
+
+        Auth is the odd one out (trobar-ha#28): retrying a revoked or
+        wrong token can never succeed, so it must not fall into the same
+        UpdateFailed bucket as a transient failure. Raising
+        ConfigEntryAuthFailed here is what makes the coordinator (it was
+        constructed with config_entry=entry) start the config entry's
+        reauth flow instead of retrying forever -- this became reachable
+        in practice once trobar-server#478 started revoking non-admin-
+        minted tokens on upgrade. Must be caught before the generic
+        TrobarApiError below, since TrobarAuthError is a subclass of it.
         """
         try:
             devices = await self._client.async_get_devices()
+        except TrobarAuthError as err:
+            raise ConfigEntryAuthFailed(_ERROR_MESSAGES[TrobarAuthError]) from err
         except TrobarApiError as err:
             message = _ERROR_MESSAGES.get(type(err), str(err) or type(err).__name__)
             raise UpdateFailed(message) from err
