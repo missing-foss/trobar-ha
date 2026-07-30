@@ -14,6 +14,18 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.trobar.const import DOMAIN
 
 DEVICES_URL = "http://trobar.local/api/integrations/devices"
+SERVER_URL = "http://trobar.local/api/integrations/server"
+
+# trobar-ha#25: __init__.py's first refresh now fetches both endpoints,
+# so every test that sets up a full config entry needs this mocked too --
+# a fixed default here, overridable per-test the same way DEVICES_URL is.
+SAMPLE_SERVER_STATUS = {
+    "version": "2.9.0",
+    "track_count": 100,
+    "total_bytes": 5_000_000_000,
+    "scan_running": False,
+    "last_scan_at": "2026-07-30 12:00:00",
+}
 
 # A regular phone: fully populated, nothing null.
 PHONE_DEVICE = {
@@ -63,8 +75,11 @@ WATCH_DEVICE = {
 }
 
 
-async def _setup_entry(hass, aioclient_mock, devices) -> MockConfigEntry:
+async def _setup_entry(
+    hass, aioclient_mock, devices, server_status=SAMPLE_SERVER_STATUS
+) -> MockConfigEntry:
     aioclient_mock.get(DEVICES_URL, json=copy.deepcopy(devices))
+    aioclient_mock.get(SERVER_URL, json=copy.deepcopy(server_status))
     entry = MockConfigEntry(
         domain=DOMAIN,
         unique_id="http://trobar.local",
@@ -79,6 +94,11 @@ async def _setup_entry(hass, aioclient_mock, devices) -> MockConfigEntry:
 def _entity_id(hass, device_id: int, key: str) -> str | None:
     registry = er.async_get(hass)
     return registry.async_get_entity_id("sensor", DOMAIN, f"{device_id}_{key}")
+
+
+def _server_entity_id(hass, key: str) -> str | None:
+    registry = er.async_get(hass)
+    return registry.async_get_entity_id("sensor", DOMAIN, f"server_{key}")
 
 
 async def test_populated_device_sensor_values(hass, aioclient_mock):
@@ -176,7 +196,7 @@ async def test_owner_sensor_follows_transfer_on_next_refresh(hass, aioclient_moc
     transferred["is_own"] = False
     aioclient_mock.clear_requests()
     aioclient_mock.get(DEVICES_URL, json=[transferred])
-    await entry.runtime_data.async_refresh()
+    await entry.runtime_data.devices.async_refresh()
     await hass.async_block_till_done()
 
     assert hass.states.get(_entity_id(hass, 1, "owner")).state == "bob"
@@ -195,7 +215,7 @@ async def test_device_removed_from_response_is_removed_from_registry(
 
     aioclient_mock.clear_requests()
     aioclient_mock.get(DEVICES_URL, json=[PHONE_DEVICE])
-    await entry.runtime_data.async_refresh()
+    await entry.runtime_data.devices.async_refresh()
     await hass.async_block_till_done()
 
     assert device_registry.async_get_device(identifiers={(DOMAIN, "5")}) is None
@@ -210,7 +230,7 @@ async def test_device_added_in_later_refresh_gets_entities(hass, aioclient_mock)
 
     aioclient_mock.clear_requests()
     aioclient_mock.get(DEVICES_URL, json=[PHONE_DEVICE, WATCH_DEVICE])
-    await entry.runtime_data.async_refresh()
+    await entry.runtime_data.devices.async_refresh()
     await hass.async_block_till_done()
 
     assert hass.states.get(_entity_id(hass, 5, "pending_tracks")) is not None
@@ -223,7 +243,7 @@ async def test_whole_poll_failure_makes_entities_unavailable(hass, aioclient_moc
 
     aioclient_mock.clear_requests()
     aioclient_mock.get(DEVICES_URL, status=401)
-    await entry.runtime_data.async_refresh()
+    await entry.runtime_data.devices.async_refresh()
     await hass.async_block_till_done()
 
     assert hass.states.get(_entity_id(hass, 1, "pending_tracks")).state == "unavailable"
@@ -249,3 +269,65 @@ async def test_unknown_fields_are_tolerated(hass, aioclient_mock):
     assert hass.states.get(_entity_id(hass, 1, "unknown_tracks")).state == "223"
     assert hass.states.get(_entity_id(hass, 1, "owner")).state == "alice"
     assert hass.states.get(_entity_id(hass, 1, "free_space")).state != "unavailable"
+
+
+async def test_server_sensors_read_the_server_status_values(hass, aioclient_mock):
+    await _setup_entry(hass, aioclient_mock, [])
+
+    assert hass.states.get(_server_entity_id(hass, "version")).state == "2.9.0"
+    assert hass.states.get(_server_entity_id(hass, "tracks")).state == "100"
+    library_size_state = hass.states.get(_server_entity_id(hass, "library_size"))
+    assert library_size_state.state != "unavailable"
+
+
+async def test_server_last_scan_null_reads_as_unknown_not_unavailable(
+    hass, aioclient_mock
+):
+    """trobar-server#475's own null semantics: last_scan_at is null while
+    a scan is running or before the first one ever completes -- a real,
+    meaningful value ("no completed scan to report"), not an error."""
+    never_scanned = {**SAMPLE_SERVER_STATUS, "last_scan_at": None}
+    await _setup_entry(hass, aioclient_mock, [], server_status=never_scanned)
+
+    state = hass.states.get(_server_entity_id(hass, "last_scan"))
+    assert state.state == "unknown"
+
+
+async def test_server_version_sensor_is_diagnostic(hass, aioclient_mock):
+    await _setup_entry(hass, aioclient_mock, [])
+
+    registry = er.async_get(hass)
+    entry = registry.async_get(_server_entity_id(hass, "version"))
+    assert entry.entity_category is EntityCategory.DIAGNOSTIC
+
+
+async def test_server_sensors_share_one_device_with_the_binary_sensors_and_button(
+    hass, aioclient_mock
+):
+    await _setup_entry(hass, aioclient_mock, [])
+
+    registry = er.async_get(hass)
+    device_ids = {
+        registry.async_get(_server_entity_id(hass, key)).device_id
+        for key in ("version", "tracks", "library_size", "last_scan")
+    }
+    device_ids.add(
+        registry.async_get(
+            registry.async_get_entity_id("binary_sensor", DOMAIN, "server_reachable")
+        ).device_id
+    )
+    device_ids.add(
+        registry.async_get(
+            registry.async_get_entity_id("button", DOMAIN, "server_scan_library")
+        ).device_id
+    )
+    assert len(device_ids) == 1
+
+
+async def test_server_status_unknown_fields_are_tolerated(hass, aioclient_mock):
+    """Same #18 discipline as the devices response -- a field #475 adds
+    later must not break setup."""
+    status = {**SAMPLE_SERVER_STATUS, "future_field": "surprise"}
+    await _setup_entry(hass, aioclient_mock, [], server_status=status)
+
+    assert hass.states.get(_server_entity_id(hass, "version")).state == "2.9.0"

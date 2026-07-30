@@ -48,6 +48,31 @@
       },
       "owner": {
         "name": "Propriétaire"
+      },
+      "server_version": {
+        "name": "Version"
+      },
+      "server_tracks": {
+        "name": "Morceaux"
+      },
+      "server_library_size": {
+        "name": "Taille de la bibliothèque"
+      },
+      "server_last_scan": {
+        "name": "Dernière analyse"
+      }
+    },
+    "binary_sensor": {
+      "reachable": {
+        "name": "Joignable"
+      },
+      "scan_running": {
+        "name": "Analyse en cours"
+      }
+    },
+    "button": {
+      "scan_library": {
+        "name": "Analyser la bibliothèque"
       }
     }
   },

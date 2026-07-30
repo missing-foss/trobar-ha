@@ -48,6 +48,31 @@
       },
       "owner": {
         "name": "Owner"
+      },
+      "server_version": {
+        "name": "Version"
+      },
+      "server_tracks": {
+        "name": "Tracks"
+      },
+      "server_library_size": {
+        "name": "Library size"
+      },
+      "server_last_scan": {
+        "name": "Last scan"
+      }
+    },
+    "binary_sensor": {
+      "reachable": {
+        "name": "Reachable"
+      },
+      "scan_running": {
+        "name": "Scan running"
+      }
+    },
+    "button": {
+      "scan_library": {
+        "name": "Scan library"
       }
     }
   },

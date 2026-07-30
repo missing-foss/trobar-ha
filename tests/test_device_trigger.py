@@ -77,7 +77,7 @@ async def test_sync_completed_fires_when_pending_drops_to_zero(hass, aioclient_m
     caught_up["sync_status"]["pending_count"] = 0
     aioclient_mock.clear_requests()
     aioclient_mock.get(DEVICES_URL, json=[caught_up])
-    await entry.runtime_data.async_refresh()
+    await entry.runtime_data.devices.async_refresh()
     await hass.async_block_till_done()
 
     assert len(calls) == 1
@@ -102,7 +102,7 @@ async def test_sync_completed_does_not_fire_if_already_zero_at_setup(
     # transitioned, so nothing should fire.
     aioclient_mock.clear_requests()
     aioclient_mock.get(DEVICES_URL, json=[already_caught_up])
-    await entry.runtime_data.async_refresh()
+    await entry.runtime_data.devices.async_refresh()
     await hass.async_block_till_done()
 
     assert len(calls) == 0
@@ -122,7 +122,7 @@ async def test_sync_completed_does_not_fire_while_still_pending(hass, aioclient_
     still_going["sync_status"]["pending_count"] = 1
     aioclient_mock.clear_requests()
     aioclient_mock.get(DEVICES_URL, json=[still_going])
-    await entry.runtime_data.async_refresh()
+    await entry.runtime_data.devices.async_refresh()
     await hass.async_block_till_done()
 
     assert len(calls) == 0
