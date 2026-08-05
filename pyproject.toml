@@ -3,7 +3,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 [tool.ruff]
-target-version = "py313"
+# Our real floor is HA 2026.3.0's (hacs.json), which requires Python >=3.14.2.
+target-version = "py314"
 line-length = 88
 
 [tool.ruff.lint]
