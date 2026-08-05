@@ -3,4 +3,4 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 ruff==0.16.1
-pytest-homeassistant-custom-component==0.13.315
+pytest-homeassistant-custom-component==0.13.348
