@@ -63,6 +63,29 @@ jobs:
       - name: Install dev dependencies
         run: pip install -r requirements-dev.txt
 
+      - name: Reject a prerelease HA core
+        # We do not support Home Assistant betas, and the version we test
+        # against is chosen for us: pytest-homeassistant-custom-component
+        # pins an exact `homeassistant==`, and it cuts a release per HA beta
+        # (0.13.349-.353 pin 2026.8.0b0-b5). So a routine-looking bump of a
+        # test dependency silently moves CI onto a beta core, where a core
+        # regression reads as our bug. Nothing in pytest-HA's own version
+        # number says which core it carries, so this asserts on what
+        # actually got resolved rather than on the pin. See #35.
+        run: |
+          python - <<'PY'
+          import sys
+          from importlib.metadata import version
+          from packaging.version import Version
+
+          v = Version(version("homeassistant"))
+          if v.is_prerelease:
+              print(f"::error::resolved homeassistant {v} is a prerelease; "
+                    "we do not support HA betas")
+              sys.exit(1)
+          print(f"homeassistant {v} (stable)")
+          PY
+
       - name: Lint (ruff)
         run: ruff check .
 
