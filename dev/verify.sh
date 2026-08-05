@@ -14,24 +14,13 @@ cd "$(git rev-parse --show-toplevel)"
 fail=0
 step() { echo; echo "== $1 =="; }
 
-step "HA core is not a prerelease"
-# pytest-homeassistant-custom-component pins an exact `homeassistant==` and
-# cuts a release per HA beta, so a routine-looking bump of it can move the
-# suite onto a beta core. Its own version number doesn't say which core it
-# carries — assert on what actually got installed. See #35.
+step "resolved HA core is supported"
+# Not a prerelease, and at or above hacs.json's declared minimum. See
+# dev/check_core.py for why both properties are asserted on the INSTALLED
+# distribution rather than on the pin. CI runs this twice — once per core
+# it tests (#38); locally it checks whatever venv you're in.
 if python3 -c "import homeassistant" >/dev/null 2>&1; then
-  if python3 - <<'PY'
-import sys
-from importlib.metadata import version
-from packaging.version import Version
-
-v = Version(version("homeassistant"))
-if v.is_prerelease:
-    print(f"PRERELEASE: homeassistant {v} — we do not support HA betas")
-    sys.exit(1)
-print(f"homeassistant {v} (stable)")
-PY
-  then echo ok; else fail=1; fi
+  if python3 dev/check_core.py; then echo ok; else fail=1; fi
 else
   echo "SKIP (homeassistant not installed — pip install -r requirements-dev.txt) — CI still runs it"
 fi

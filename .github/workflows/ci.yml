@@ -16,8 +16,9 @@
 #   repo). This needed an explicit allowlist addition before it would run —
 #   see trobar-ha#1 — since done; the same may apply to `hacs` below.
 # - `validate` — lint (ruff), tests (pytest-homeassistant-custom-component,
-#   from trobar-ha#4), the household leak scan, gitleaks, and REUSE
-#   (per-file SPDX licensing).
+#   from trobar-ha#4) against BOTH the pinned core and the oldest core
+#   hacs.json advertises (trobar-ha#38), the household leak scan, gitleaks,
+#   and REUSE (per-file SPDX licensing).
 # - `hacs` — HACS's own repository validator (trobar-ha#1 Phase B): checks
 #   hacs.json, the manifest, and everything else the HACS store itself
 #   requires before it'll list the integration. Not yet a required status
@@ -36,6 +37,19 @@ permissions:
 env:
   GITLEAKS_VERSION: "8.24.3"
   GITLEAKS_SHA256: "9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c"
+  # The suite runs against TWO cores (trobar-ha#38): the pin in
+  # requirements-dev.txt, and the oldest core we advertise. Testing only the
+  # newest is what let the original drift go unnoticed — a single pin proves
+  # nothing about the floor, and everything between the two is still
+  # untested, so keep the floor honest rather than convenient.
+  #
+  # 0.13.317 is the OLDEST pytest-HA release on the Python 3.14 line and it
+  # pins homeassistant==2026.3.1 — the closest testable point to hacs.json's
+  # 2026.3.0, since no pytest-HA release pins 2026.3.0 itself. If hacs.json's
+  # minimum is ever raised, move this in the same commit; dev/check_core.py
+  # fails the job if this resolves below what hacs.json declares, so the two
+  # cannot silently drift apart again.
+  FLOOR_PYTEST_HA: "0.13.317"
 
 jobs:
   hassfest:
@@ -70,33 +84,17 @@ jobs:
       - name: Install dev dependencies
         run: pip install -r requirements-dev.txt
 
-      - name: Reject a prerelease HA core
-        # We do not support Home Assistant betas, and the version we test
-        # against is chosen for us: pytest-homeassistant-custom-component
-        # pins an exact `homeassistant==`, and it cuts a release per HA beta
-        # (0.13.349-.353 pin 2026.8.0b0-b5). So a routine-looking bump of a
-        # test dependency silently moves CI onto a beta core, where a core
-        # regression reads as our bug. Nothing in pytest-HA's own version
-        # number says which core it carries, so this asserts on what
-        # actually got resolved rather than on the pin. See #35.
-        run: |
-          python - <<'PY'
-          import sys
-          from importlib.metadata import version
-          from packaging.version import Version
-
-          v = Version(version("homeassistant"))
-          if v.is_prerelease:
-              print(f"::error::resolved homeassistant {v} is a prerelease; "
-                    "we do not support HA betas")
-              sys.exit(1)
-          print(f"homeassistant {v} (stable)")
-          PY
+      - name: Check the resolved core (current pin)
+        # Asserts on what actually got installed, not on the pin — see the
+        # script's own docstring for why both properties matter. Was an
+        # inline heredoc; extracted so ci.yml and dev/verify.sh share one
+        # implementation rather than three copies drifting apart.
+        run: python dev/check_core.py
 
       - name: Lint (ruff)
         run: ruff check .
 
-      - name: Tests (pytest)
+      - name: Tests (pytest, current pin)
         run: pytest
 
       - name: Leak scan (household infra must never ship)
@@ -128,3 +126,25 @@ jobs:
         # via pipx (preinstalled on the runner). The charset-normalizer extra
         # supplies reuse's encoding detection without needing libmagic.
         run: pipx run --spec 'reuse[charset-normalizer]' reuse lint
+
+      - name: Tests (pytest, declared floor)
+        # trobar-ha#38's second half: prove the version we ADVERTISE works,
+        # not just the version we happen to pin.
+        #
+        # Deliberately a second pass inside this job rather than a
+        # `strategy.matrix` on it. A matrix renames the check runs to
+        # `validate (0.13.317)` / `validate (0.13.348)`, and bare `validate`
+        # — which is a required status check in the protect-main ruleset —
+        # would then never report, blocking every merge with "Required
+        # status check validate is expected" until an admin edits the
+        # ruleset. Same class of trap as the `Ready to merge gate /
+        # require-label` name mismatch. Keeping one job keeps the required
+        # context intact AND keeps the floor genuinely enforced; the
+        # alternative (a separate, non-required job) would run but couldn't
+        # block. Runs last so the pinned core's result surfaces first and
+        # the downgrade can't affect the steps above.
+        run: |
+          set -euo pipefail
+          pip install "pytest-homeassistant-custom-component==${FLOOR_PYTEST_HA}"
+          python dev/check_core.py
+          pytest
