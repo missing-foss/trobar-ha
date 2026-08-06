@@ -87,8 +87,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: TrobarConfigEntry) -> bo
     mirrors_coordinator = TrobarMirrorsDataUpdateCoordinator(hass, entry, client)
     await mirrors_coordinator.async_refresh()
     if not mirrors_coordinator.supported:
+        # Reports what was OBSERVED, not a diagnosis. This is the only
+        # place in the integration where a 404 silently changes what gets
+        # set up -- everywhere else it fails setup and the operator finds
+        # out -- and _request_json maps *any* 404 to
+        # TrobarServerTooOldError, so "old server" is a guess. A reverse
+        # proxy whose path allowlist wasn't updated for the newer route
+        # 404s exactly this one path and reads identically. Naming both
+        # possibilities is the difference between a confident wrong
+        # answer and a useful one when someone is grepping for why two
+        # entities vanished.
         _LOGGER.info(
-            "Trobar server at %s predates 2.12.0; skipping mirror health entities",
+            "Trobar server at %s answered 404 for the mirrors route: either it "
+            "predates 2.12.0, or that route isn't reachable (check any reverse "
+            "proxy path rules). Skipping mirror health entities",
             entry.data[CONF_URL],
         )
 
