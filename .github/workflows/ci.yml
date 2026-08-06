@@ -79,7 +79,14 @@ jobs:
           # HA 2026.2.x: the suite was green against a core release BELOW the
           # one we advertise, and no bump past pytest-HA 0.13.316 could install
           # at all (trobar-ha#38). Raise this in step with hacs.json.
-          python-version: "3.14"
+          #
+          # Stated as a range rather than "3.14": a floating minor claims
+          # "some 3.14.x", which is not the claim we need — 3.14.0 and
+          # 3.14.1 are both 3.14 and both below HA's floor. dev/check_core.py
+          # asserts the interpreter actually cleared it, because
+          # setup-python's documented behaviour when nothing resolves is to
+          # fall back to whatever Python is on PATH — a silent degradation.
+          python-version: ">=3.14.2"
 
       - name: Install dev dependencies
         run: pip install -r requirements-dev.txt
