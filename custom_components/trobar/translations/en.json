@@ -60,6 +60,9 @@
       },
       "server_last_scan": {
         "name": "Last scan"
+      },
+      "server_mirrors_failing": {
+        "name": "Mirrors failing"
       }
     },
     "binary_sensor": {
@@ -68,6 +71,9 @@
       },
       "scan_running": {
         "name": "Scan running"
+      },
+      "mirrors_problem": {
+        "name": "Mirror problem"
       }
     },
     "button": {

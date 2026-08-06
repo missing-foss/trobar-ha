@@ -2,14 +2,20 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""DataUpdateCoordinators for Trobar (trobar-ha#5, server metrics in #25).
+"""DataUpdateCoordinators for Trobar (trobar-ha#5, server metrics in
+#25, mirror health in #32).
 
-Two coordinators, deliberately separate rather than one that fetches
-both routes per cycle: GET /api/integrations/devices and
-GET /api/integrations/server are independent failure domains (#25's own
-"reachable" signal has to stay meaningful even if, say, the server route
-alone hiccups), and combining them would flip every per-device entity
-unavailable over a failure that has nothing to do with any device.
+Three coordinators, deliberately separate rather than one that fetches
+every route per cycle: GET /api/integrations/devices,
+GET /api/integrations/server and GET /api/integrations/mirrors are
+independent failure domains (#25's own "reachable" signal has to stay
+meaningful even if, say, the server route alone hiccups), and combining
+them would flip every per-device entity unavailable over a failure that
+has nothing to do with any device.
+
+Mirrors adds a wrinkle the other two don't have: its server floor is
+2.12.0, four minors above the rest, so on an older server that one route
+404s while everything else works. See TrobarMirrorsDataUpdateCoordinator.
 """
 
 from __future__ import annotations
@@ -132,6 +138,50 @@ class TrobarServerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data(self) -> dict[str, Any]:
         try:
             return await self.client.async_get_server_status()
+        except TrobarApiError as err:
+            _raise_for_api_error(err)
+            raise AssertionError("unreachable")  # pragma: no cover
+
+
+class TrobarMirrorsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+    """Fetch instance-wide playlist-mirror health (trobar-ha#32,
+    trobar-server#506). A third coordinator for the same reason there are
+    already two: GET /api/integrations/mirrors is its own failure domain,
+    and a mirrors hiccup must not take the reachability signal or the
+    per-device entities down with it.
+
+    `supported` exists because this route's server floor is 2.12.0 while
+    the integration as a whole supports 2.8.0+. A 404 here therefore means
+    "this server predates mirrors", NOT "this server is too old for
+    Trobar" -- so it is recorded rather than merely raised, letting
+    __init__.py skip the mirror entities on an older server instead of
+    shipping two entities that can only ever read unavailable. It starts
+    True and only ever goes False: an unreachable server at startup must
+    not be mistaken for an old one, since that would silently drop the
+    entities until the next reload.
+    """
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, client: TrobarApiClient
+    ) -> None:
+        super().__init__(
+            hass,
+            _LOGGER,
+            config_entry=entry,
+            name="Trobar mirrors",
+            update_interval=UPDATE_INTERVAL,
+        )
+        self._client = client
+        self.supported = True
+
+    async def _async_update_data(self) -> dict[str, Any]:
+        try:
+            return await self._client.async_get_mirrors()
+        except TrobarServerTooOldError as err:
+            self.supported = False
+            raise UpdateFailed(
+                "Server too old for mirror health (need 2.12.0+)"
+            ) from err
         except TrobarApiError as err:
             _raise_for_api_error(err)
             raise AssertionError("unreachable")  # pragma: no cover
