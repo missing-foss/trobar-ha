@@ -86,7 +86,14 @@ jobs:
           # asserts the interpreter actually cleared it, because
           # setup-python's documented behaviour when nothing resolves is to
           # fall back to whatever Python is on PATH — a silent degradation.
-          python-version: ">=3.14.2"
+          #
+          # Bounded above as well: ">=3.14.2" alone fixes the floor but
+          # removes the ceiling that plain "3.14" gave us, so the day 3.15
+          # reaches the runner's tool cache CI would migrate to it silently
+          # — homeassistant declares no upper bound, so pip wouldn't object,
+          # and breakage would arrive looking like our bug. Pinning the
+          # minor makes a Python migration a deliberate commit.
+          python-version: ">=3.14.2 <3.15"
 
       - name: Install dev dependencies
         run: pip install -r requirements-dev.txt
@@ -150,8 +157,20 @@ jobs:
         # alternative (a separate, non-required job) would run but couldn't
         # block. Runs last so the pinned core's result surfaces first and
         # the downgrade can't affect the steps above.
+        #
+        # `--below` is what stops this pass being vacuously satisfiable
+        # (trobar-ha#44). check_core.py's other assertions all pass just as
+        # happily against the PINNED core, so a downgrade that silently
+        # no-ops would re-run the same core twice and still report green —
+        # claiming two-core coverage it never delivered, which is the exact
+        # "green while testing nothing we advertise" state #38 existed to
+        # end. Comparing against the version observed before the install
+        # asserts the move happened without hardcoding the floor core here,
+        # and strictly-below (rather than merely different) also catches an
+        # accidental upgrade.
         run: |
           set -euo pipefail
+          before=$(python -c 'from importlib.metadata import version; print(version("homeassistant"))')
           pip install "pytest-homeassistant-custom-component==${FLOOR_PYTEST_HA}"
-          python dev/check_core.py
+          python dev/check_core.py --below "$before"
           pytest

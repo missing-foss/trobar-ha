@@ -30,6 +30,14 @@ The Home Assistant core:
 Nothing in pytest-HA's own version number states which core it carries,
 which is why both checks assert on the installed distribution.
 
+``--below VERSION`` adds a fourth: the resolved core must be strictly
+older than VERSION. CI's floor pass uses it to prove the downgrade
+actually happened (trobar-ha#44) — without it that pass is vacuously
+satisfiable, since a downgrade that silently no-ops leaves the pinned
+core installed, and a pinned core passes every other check here. Paired
+with the ``>= hacs.json minimum`` check above it brackets the floor from
+both sides: strictly below what we pin, at or above what we advertise.
+
 Run from anywhere; paths resolve relative to this file, not the cwd.
 """
 
@@ -51,8 +59,10 @@ from pathlib import Path
 HACS_JSON = Path(__file__).resolve().parent.parent / "hacs.json"
 
 # HA 2026.3.0 — the minimum hacs.json advertises — declares
-# `Requires-Python >=3.14.2`. Move this with hacs.json's minimum; the two
-# are the same decision expressed in two places.
+# `Requires-Python >=3.14.2`. ONE decision lives in THREE places: this
+# constant, `python-version` in .github/workflows/ci.yml, and the core
+# minimum in hacs.json that both derive from. Nothing asserts the three
+# agree, so raising hacs.json means moving all of them by hand.
 MIN_PYTHON = (3, 14, 2)
 
 
@@ -64,6 +74,14 @@ def fail(message: str) -> None:
 
 
 def main() -> int:
+    below = None
+    argv = sys.argv[1:]
+    if argv:
+        if len(argv) != 2 or argv[0] != "--below":
+            fail(f"usage: {Path(__file__).name} [--below VERSION]")
+            return 1
+        below = argv[1]
+
     running = sys.version_info[:3]
     if running < MIN_PYTHON:
         fail(
@@ -98,9 +116,18 @@ def main() -> int:
         )
         return 1
 
+    if below is not None and not core < Version(below):
+        fail(
+            f"resolved homeassistant {core} is NOT below {below} — the floor "
+            f"pass did not move the core off the pinned one, so it re-ran the "
+            f"same core and proved nothing about the version we advertise"
+        )
+        return 1
+
+    bracket = f", < {below}" if below is not None else ""
     print(
         f"Python {'.'.join(map(str, running))} (>= {'.'.join(map(str, MIN_PYTHON))}), "
-        f"homeassistant {core} (stable, >= hacs.json minimum {declared})"
+        f"homeassistant {core} (stable, >= hacs.json minimum {declared}{bracket})"
     )
     return 0
 
