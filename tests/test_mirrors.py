@@ -192,6 +192,24 @@ async def test_entities_are_skipped_on_a_server_older_than_2_12(hass, aioclient_
     assert entry.runtime_data.mirrors is None
 
 
+async def test_the_404_log_line_does_not_assert_a_cause(hass, aioclient_mock, caplog):
+    """This is the only place a 404 silently changes what gets set up, and
+    _request_json maps ANY 404 to TrobarServerTooOldError -- so "old
+    server" is the likely cause, not an established one. A proxy whose
+    path allowlist missed the newer route 404s exactly this path and
+    reads identically. The message must name both, or it sends whoever
+    is grepping for the missing entities after the wrong problem.
+    """
+    await _setup_entry(hass, aioclient_mock, [], mirrors_status=404)
+
+    line = next(
+        r.getMessage() for r in caplog.records if "mirrors route" in r.getMessage()
+    )
+    assert "2.12.0" in line
+    assert "proxy" in line
+    assert "skipping mirror health entities" in line.lower()
+
+
 async def test_other_entities_survive_a_missing_mirrors_route(hass, aioclient_mock):
     """The point of a third coordinator: mirrors 404ing must not take the
     server or device entities with it."""

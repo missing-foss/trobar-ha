@@ -54,6 +54,14 @@ class TrobarServerTooOldError(TrobarApiError):
     404s that one route alone. Callers must not read this as "the server
     is too old for Trobar" in general -- see __init__.py, where a 404
     from mirrors skips those entities rather than failing setup.
+
+    The NAME is a convenience, not a conclusion: this maps *any* 404, and
+    an old server is only the most likely cause. A reverse proxy whose
+    path allowlist wasn't updated for a newer route produces the same
+    status. That distinction cost nothing while every consumer failed
+    loudly on it; it matters wherever a 404 quietly changes behaviour, so
+    messages derived from this exception should say what was observed
+    rather than assert why.
     """
 
 

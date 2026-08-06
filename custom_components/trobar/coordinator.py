@@ -179,8 +179,13 @@ class TrobarMirrorsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return await self._client.async_get_mirrors()
         except TrobarServerTooOldError as err:
             self.supported = False
+            # Same care as __init__.py's log line: state the observation,
+            # not a diagnosis. A 404 here is "route absent", which is
+            # usually an old server and sometimes a proxy that doesn't
+            # forward this path.
             raise UpdateFailed(
-                "Server too old for mirror health (need 2.12.0+)"
+                "Mirrors route answered 404 (needs server 2.12.0+, or the "
+                "route isn't reachable)"
             ) from err
         except TrobarApiError as err:
             _raise_for_api_error(err)
