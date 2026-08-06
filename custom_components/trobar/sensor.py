@@ -2,14 +2,16 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Sensor platform for Trobar (trobar-ha#5, server sensors in #25).
+"""Sensor platform for Trobar (trobar-ha#5, server sensors in #25,
+mirror health in #32).
 
 Six sensors per Trobar device, all reading from the shared coordinator's
 last successful poll -- see trobar-ha#2 for the payload these are built
 against and the null-handling notes that follow from it. Four more sensors
 live on the hub-level "server" device (trobar-ha#25), reading from the
-separate server coordinator -- see coordinator.py's module docstring for
-why that's two coordinators, not one.
+separate server coordinator, plus a fifth for mirror health (trobar-ha#32)
+on its own coordinator again -- see coordinator.py's module docstring for
+why that's three coordinators, not one.
 """
 
 from __future__ import annotations
@@ -35,7 +37,11 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from . import TrobarConfigEntry
 from .api import parse_server_timestamp
 from .const import DOMAIN, server_device_identifier
-from .coordinator import TrobarDataUpdateCoordinator, TrobarServerDataUpdateCoordinator
+from .coordinator import (
+    TrobarDataUpdateCoordinator,
+    TrobarMirrorsDataUpdateCoordinator,
+    TrobarServerDataUpdateCoordinator,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -167,6 +173,67 @@ SERVER_SENSOR_DESCRIPTIONS: tuple[TrobarServerSensorEntityDescription, ...] = (
 )
 
 
+class TrobarMirrorsFailingSensor(
+    CoordinatorEntity[TrobarMirrorsDataUpdateCoordinator], SensorEntity
+):
+    """Instance-wide count of currently-failing playlist x sink mirror
+    pairs (trobar-ha#32, trobar-server#506).
+
+    State is `mirrors_failing` verbatim, so the common automation is a
+    bare `> 0` with no templating. Two things it deliberately does NOT
+    do:
+
+    - it does not count `failing[]`. That array is capped at 50 entries;
+      `mirrors_failing` and `by_sink` are exact. Counting the array would
+      under-report on exactly the installs that most need the alert,
+      since one dead target can fail every playlist pointed at it, which
+      is precisely when the cap bites.
+    - it does not translate `error_code`. Those are deliberately
+      language-independent machine codes (trobar-server#428) and they
+      travel in an attribute, which Home Assistant does not localise --
+      a translation here would have no surface to render on. They are
+      passed through raw for templates to map. See the PR for why this is
+      deferred rather than done.
+
+    The worklist, per-sink breakdown and truncation flag all go in
+    attributes rather than the state: HA caps state at 255 characters,
+    which a 50-entry list would blow through immediately.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "server_mirrors_failing"
+    _attr_unique_id = "server_mirrors_failing"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, coordinator: TrobarMirrorsDataUpdateCoordinator) -> None:
+        super().__init__(coordinator)
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={server_device_identifier(self.coordinator.config_entry.entry_id)},
+            name="Trobar Server",
+            manufacturer="Trobar",
+        )
+
+    @property
+    def native_value(self) -> int | None:
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.data["mirrors_failing"]
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        if self.coordinator.data is None:
+            return None
+        data = self.coordinator.data
+        return {
+            "by_sink": data["by_sink"],
+            "failing": data["failing"],
+            "failing_truncated": data["failing_truncated"],
+        }
+
+
 class TrobarServerSensor(
     CoordinatorEntity[TrobarServerDataUpdateCoordinator], SensorEntity
 ):
@@ -225,6 +292,12 @@ async def async_setup_entry(
         TrobarServerSensor(entry.runtime_data.server, description)
         for description in SERVER_SENSOR_DESCRIPTIONS
     )
+
+    # None on a server older than 2.12.0 -- see TrobarRuntimeData. Adding
+    # nothing is the point: an entity that can only ever read unavailable
+    # is worse than an absent one, because it looks like a fault.
+    if entry.runtime_data.mirrors is not None:
+        async_add_entities([TrobarMirrorsFailingSensor(entry.runtime_data.mirrors)])
 
     coordinator = entry.runtime_data.devices
     known_device_ids: set[int] = set()

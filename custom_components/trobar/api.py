@@ -22,6 +22,7 @@ import aiohttp
 
 DEVICES_PATH = "/api/integrations/devices"
 SERVER_PATH = "/api/integrations/server"
+MIRRORS_PATH = "/api/integrations/mirrors"
 ACTIONS_SCAN_PATH = "/api/integrations/actions/scan"
 
 # The server's own rate limit on these routes is its own bucket (30
@@ -46,7 +47,14 @@ class TrobarAuthError(TrobarApiError):
 class TrobarServerTooOldError(TrobarApiError):
     """404: this route doesn't exist on the target server -- it predates
     whichever trobar-server version added it (2.8.0 for devices, 2.9.0
-    for server metrics and the rescan action)."""
+    for server metrics and the rescan action, 2.12.0 for mirrors).
+
+    Note the floor is per-route, not per-integration: mirrors landed four
+    minor versions after the rest, so a perfectly healthy 2.9.0 server
+    404s that one route alone. Callers must not read this as "the server
+    is too old for Trobar" in general -- see __init__.py, where a 404
+    from mirrors skips those entities rather than failing setup.
+    """
 
 
 class TrobarRateLimitedError(TrobarApiError):
@@ -155,6 +163,19 @@ class TrobarApiClient:
         """Fetch instance-wide metrics: version, track count, library
         size, scan status (trobar-server#475, server 2.9.0)."""
         _, body = await self._request_json("GET", SERVER_PATH)
+        return body
+
+    async def async_get_mirrors(self) -> dict[str, Any]:
+        """Fetch instance-wide playlist-mirror health (trobar-server#506,
+        server 2.12.0).
+
+        Instance-wide, not scoped to the token owner, and NOT per-device
+        -- one payload for the whole server. `mirrors_failing` and
+        `by_sink` are exact; `failing` is capped at 50 entries with
+        `failing_truncated` saying so. See trobar-ha#33 for a captured
+        response and the null cases that follow from it.
+        """
+        _, body = await self._request_json("GET", MIRRORS_PATH)
         return body
 
     async def async_trigger_scan(self, *, force: bool = False) -> bool:

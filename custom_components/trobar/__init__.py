@@ -7,7 +7,9 @@
 trobar-ha#4 built the config flow and API client; trobar-ha#5 adds the
 device coordinator and forwards setup to the sensor platform;
 trobar-ha#25 adds the second, server-metrics coordinator and the
-binary_sensor/button platforms for the hub-level "server" device. The
+binary_sensor/button platforms for the hub-level "server" device;
+trobar-ha#32 adds a third for playlist-mirror health, which unlike the
+other two is allowed to be absent (see TrobarRuntimeData). The
 config flow already validated the URL and token once, at entry-creation
 time -- `async_config_entry_first_refresh` below is what re-checks
 reachability on every Home Assistant restart, raising ConfigEntryNotReady
@@ -17,6 +19,7 @@ or starting reauth (trobar-ha#28) if the token was revoked since.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from homeassistant.config_entries import ConfigEntry
@@ -25,19 +28,31 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import TrobarApiClient
-from .coordinator import TrobarDataUpdateCoordinator, TrobarServerDataUpdateCoordinator
+from .coordinator import (
+    TrobarDataUpdateCoordinator,
+    TrobarMirrorsDataUpdateCoordinator,
+    TrobarServerDataUpdateCoordinator,
+)
 
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.BUTTON]
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
 class TrobarRuntimeData:
-    """Both coordinators, one per independent failure domain -- see
+    """One coordinator per independent failure domain -- see
     coordinator.py's module docstring for why they're separate rather
-    than one fetch-everything coordinator."""
+    than one fetch-everything coordinator.
+
+    `mirrors` is None on a server older than 2.12.0, which is a supported
+    configuration, not an error: the platforms skip those entities
+    entirely rather than adding two that could only read unavailable.
+    """
 
     devices: TrobarDataUpdateCoordinator
     server: TrobarServerDataUpdateCoordinator
+    mirrors: TrobarMirrorsDataUpdateCoordinator | None
 
 
 type TrobarConfigEntry = ConfigEntry[TrobarRuntimeData]
@@ -58,8 +73,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: TrobarConfigEntry) -> bo
     await devices_coordinator.async_config_entry_first_refresh()
     await server_coordinator.async_config_entry_first_refresh()
 
+    # Mirrors (trobar-ha#32) is deliberately NOT a first_refresh: that
+    # raises ConfigEntryNotReady on any failure, and this route's server
+    # floor is 2.12.0 while the integration supports 2.8.0+. A 404 here
+    # means "this server predates mirrors" -- refusing to set the entry
+    # up at all over it would break every 2.9.0-2.11.x install that works
+    # fine today. async_refresh() swallows the failure instead, and
+    # `supported` distinguishes "route absent" from "poll failed": an
+    # unreachable server keeps the entities (they read unavailable, which
+    # is true), an old one never gets them. A bad token has already
+    # raised ConfigEntryAuthFailed from one of the two refreshes above,
+    # so nothing is being swallowed here that matters.
+    mirrors_coordinator = TrobarMirrorsDataUpdateCoordinator(hass, entry, client)
+    await mirrors_coordinator.async_refresh()
+    if not mirrors_coordinator.supported:
+        _LOGGER.info(
+            "Trobar server at %s predates 2.12.0; skipping mirror health entities",
+            entry.data[CONF_URL],
+        )
+
     entry.runtime_data = TrobarRuntimeData(
-        devices=devices_coordinator, server=server_coordinator
+        devices=devices_coordinator,
+        server=server_coordinator,
+        mirrors=mirrors_coordinator if mirrors_coordinator.supported else None,
     )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True

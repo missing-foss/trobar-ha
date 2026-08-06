@@ -60,6 +60,9 @@
       },
       "server_last_scan": {
         "name": "Dernière analyse"
+      },
+      "server_mirrors_failing": {
+        "name": "Miroirs en échec"
       }
     },
     "binary_sensor": {
@@ -68,6 +71,9 @@
       },
       "scan_running": {
         "name": "Analyse en cours"
+      },
+      "mirrors_problem": {
+        "name": "Problème de miroir"
       }
     },
     "button": {

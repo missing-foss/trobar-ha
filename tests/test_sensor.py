@@ -15,6 +15,7 @@ from custom_components.trobar.const import DOMAIN
 
 DEVICES_URL = "http://trobar.local/api/integrations/devices"
 SERVER_URL = "http://trobar.local/api/integrations/server"
+MIRRORS_URL = "http://trobar.local/api/integrations/mirrors"
 
 # trobar-ha#25: __init__.py's first refresh now fetches both endpoints,
 # so every test that sets up a full config entry needs this mocked too --
@@ -25,6 +26,22 @@ SAMPLE_SERVER_STATUS = {
     "total_bytes": 5_000_000_000,
     "scan_running": False,
     "last_scan_at": "2026-07-30 12:00:00",
+}
+
+# trobar-ha#32: a third endpoint, so a third default here for the same
+# reason. The healthy shape is the default because most tests don't care
+# about mirrors; tests/test_mirrors.py overrides it with the failing and
+# edge-case payloads.
+SAMPLE_MIRRORS = {
+    "mirrors_failing": 0,
+    "by_sink": {
+        "filesystem": {"enabled": 4, "failing": 0},
+        "subsonic": {"enabled": 6, "failing": 0},
+        "jellyfin": {"enabled": 6, "failing": 0},
+        "emby": {"enabled": 0, "failing": 0},
+    },
+    "failing": [],
+    "failing_truncated": False,
 }
 
 # A regular phone: fully populated, nothing null.
@@ -76,10 +93,21 @@ WATCH_DEVICE = {
 
 
 async def _setup_entry(
-    hass, aioclient_mock, devices, server_status=SAMPLE_SERVER_STATUS
+    hass,
+    aioclient_mock,
+    devices,
+    server_status=SAMPLE_SERVER_STATUS,
+    mirrors=SAMPLE_MIRRORS,
+    mirrors_status=None,
 ) -> MockConfigEntry:
     aioclient_mock.get(DEVICES_URL, json=copy.deepcopy(devices))
     aioclient_mock.get(SERVER_URL, json=copy.deepcopy(server_status))
+    if mirrors_status is not None:
+        # For the server-too-old / unreachable cases, where the route
+        # answers a status rather than a payload (trobar-ha#32).
+        aioclient_mock.get(MIRRORS_URL, status=mirrors_status)
+    else:
+        aioclient_mock.get(MIRRORS_URL, json=copy.deepcopy(mirrors))
     entry = MockConfigEntry(
         domain=DOMAIN,
         unique_id="http://trobar.local",

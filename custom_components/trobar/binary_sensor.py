@@ -2,12 +2,13 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Binary sensor platform for Trobar (trobar-ha#25).
+"""Binary sensor platform for Trobar (trobar-ha#25, mirror health in #32).
 
-Two binary sensors on the hub-level "server" device: reachability and
-whether a library scan is currently running. Both read from the server
-coordinator, not the device one -- see coordinator.py's module docstring
-for why the two are kept separate.
+Three binary sensors on the hub-level "server" device: reachability,
+whether a library scan is currently running, and whether any playlist
+mirror is failing. The first two read from the server coordinator, not
+the device one; the third from the mirrors coordinator -- see
+coordinator.py's module docstring for why they are kept separate.
 """
 
 from __future__ import annotations
@@ -22,7 +23,10 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import TrobarConfigEntry
 from .const import server_device_identifier
-from .coordinator import TrobarServerDataUpdateCoordinator
+from .coordinator import (
+    TrobarMirrorsDataUpdateCoordinator,
+    TrobarServerDataUpdateCoordinator,
+)
 
 
 async def async_setup_entry(
@@ -35,6 +39,10 @@ async def async_setup_entry(
             TrobarScanRunningBinarySensor(coordinator),
         ]
     )
+
+    # None on a server older than 2.12.0 -- see TrobarRuntimeData.
+    if entry.runtime_data.mirrors is not None:
+        async_add_entities([TrobarMirrorsProblemBinarySensor(entry.runtime_data.mirrors)])
 
 
 class _TrobarServerBinarySensorBase(
@@ -100,3 +108,48 @@ class TrobarScanRunningBinarySensor(_TrobarServerBinarySensorBase):
         if self.coordinator.data is None:
             return None
         return self.coordinator.data["scan_running"]
+
+
+class TrobarMirrorsProblemBinarySensor(
+    CoordinatorEntity[TrobarMirrorsDataUpdateCoordinator], BinarySensorEntity
+):
+    """Whether any playlist mirror is currently failing (trobar-ha#32).
+
+    The idiomatic HA shape for "something needs attention": a `problem`
+    device class reads as Detected/OK in the UI and needs no numeric
+    comparison in an automation, unlike the count sensor it sits beside.
+    Both exist because they answer different questions -- "is anything
+    broken" versus "how much".
+
+    Reads `mirrors_failing`, never `len(failing)`: that array is capped
+    at 50 (trobar-server#506), and while a cap can't hide a non-zero
+    count from a boolean, deriving it from the list would still be wrong
+    the moment the payload's own exact counter and its truncated worklist
+    disagree. Use the number that is documented as exact.
+
+    Normal availability: if the server can't be reached, whether mirrors
+    are failing genuinely is unknown -- the same reasoning as
+    TrobarScanRunningBinarySensor above, not TrobarReachableBinarySensor.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "mirrors_problem"
+    _attr_unique_id = "server_mirrors_problem"
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+
+    def __init__(self, coordinator: TrobarMirrorsDataUpdateCoordinator) -> None:
+        super().__init__(coordinator)
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={server_device_identifier(self.coordinator.config_entry.entry_id)},
+            name="Trobar Server",
+            manufacturer="Trobar",
+        )
+
+    @property
+    def is_on(self) -> bool | None:
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.data["mirrors_failing"] > 0
