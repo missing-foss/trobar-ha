@@ -1,0 +1,166 @@
+# SPDX-FileCopyrightText: 2026 missing-foss
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# trobar-ha CI: the pre-merge verify gate. Runs on every push/PR.
+#
+# Three jobs:
+# - `hassfest` — Home Assistant's own integration validator (manifest
+#   schema, codeowners format, requirements, etc.). Uses the upstream
+#   composite action, which just runs a Docker image against the checked-out
+#   repo — no inputs needed, it finds custom_components/ itself.
+#   NOTE (org Actions allowlist): home-assistant/actions is a third-party
+#   action; the org's Actions policy only allows GitHub-owned +
+#   verified-creator actions (same restriction that makes gitleaks/reuse
+#   below plain `run:` steps rather than marketplace actions in every sibling
+#   repo). This needed an explicit allowlist addition before it would run —
+# — since done; the same may apply to `hacs` below.
+# - `validate` — lint (ruff), tests (pytest-homeassistant-custom-component,
+#   from trobar-ha#4) against BOTH the pinned core and the oldest core
+#   hacs.json advertises (trobar-ha#38), gitleaks, and REUSE (per-file
+#   SPDX licensing).
+# - `hacs` — HACS's own repository validator (trobar-ha#1 Phase B): checks
+#   hacs.json, the manifest, and everything else the HACS store itself
+#   requires before it'll list the integration. Not yet a required status
+#   check in the ruleset — add it once a green run confirms the name and
+#   that the org allowlist doesn't block it, same caution as hassfest's own
+#   entry above.
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  GITLEAKS_VERSION: "8.24.3"
+  GITLEAKS_SHA256: "9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c"
+  # The suite runs against TWO cores (trobar-ha#38): the pin in
+  # requirements-dev.txt, and the oldest core we advertise. Testing only the
+  # newest is what let the original drift go unnoticed — a single pin proves
+  # nothing about the floor, and everything between the two is still
+  # untested, so keep the floor honest rather than convenient.
+  #
+  # 0.13.317 is the OLDEST pytest-HA release on the Python 3.14 line and it
+  # pins homeassistant==2026.3.1 — the closest testable point to hacs.json's
+  # 2026.3.0, since no pytest-HA release pins 2026.3.0 itself. If hacs.json's
+  # minimum is ever raised, move this in the same commit; dev/check_core.py
+  # fails the job if this resolves below what hacs.json declares, so the two
+  # cannot silently drift apart again.
+  FLOOR_PYTEST_HA: "0.13.317"
+
+jobs:
+  hassfest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: home-assistant/actions/hassfest@a7c616ce81ccda50150bf1595786c71b1883fabb # master
+
+  hacs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: hacs/action@1ebf01c408f29afcb6406bd431bc98fd8cbb15aa # main
+        with:
+          category: integration
+
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          # Must track the Python floor of the HA version we declare as our
+          # minimum in hacs.json, not merely "a version that installs". HA
+          # 2026.3.0 — our declared minimum — is exactly where core moved to
+          # `Requires-Python >=3.14.2`, so on 3.13 pip could only ever resolve
+          # HA 2026.2.x: the suite was green against a core release BELOW the
+          # one we advertise, and no bump past pytest-HA 0.13.316 could install
+          # at all (trobar-ha#38). Raise this in step with hacs.json.
+          #
+          # Stated as a range rather than "3.14": a floating minor claims
+          # "some 3.14.x", which is not the claim we need — 3.14.0 and
+          # 3.14.1 are both 3.14 and both below HA's floor. dev/check_core.py
+          # asserts the interpreter actually cleared it, because
+          # setup-python's documented behaviour when nothing resolves is to
+          # fall back to whatever Python is on PATH — a silent degradation.
+          #
+          # Bounded above as well: ">=3.14.2" alone fixes the floor but
+          # removes the ceiling that plain "3.14" gave us, so the day 3.15
+          # reaches the runner's tool cache CI would migrate to it silently
+          # — homeassistant declares no upper bound, so pip wouldn't object,
+          # and breakage would arrive looking like our bug. Pinning the
+          # minor makes a Python migration a deliberate commit.
+          python-version: ">=3.14.2 <3.15"
+
+      - name: Install dev dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Check the resolved core (current pin)
+        # Asserts on what actually got installed, not on the pin — see the
+        # script's own docstring for why both properties matter. Was an
+        # inline heredoc; extracted so ci.yml and dev/verify.sh share one
+        # implementation rather than three copies drifting apart.
+        run: python dev/check_core.py
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Tests (pytest, current pin)
+        run: pytest
+
+      - name: Secret scan
+        # Binary download rather than gitleaks-action: the org Actions policy
+        # only allows GitHub-owned + verified-creator actions. sha256-verified
+        # rather than piped straight into extraction.
+        run: |
+          set -euo pipefail
+          v="$GITLEAKS_VERSION"
+          curl -sSL -o gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${v}/gitleaks_${v}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
+          rm gitleaks.tar.gz
+          ./gitleaks git --no-banner .
+
+      - name: REUSE lint (per-file SPDX licensing)
+        # Python tool; the org Actions policy blocks fsfe/reuse-action, so run it
+        # via pipx (preinstalled on the runner). The charset-normalizer extra
+        # supplies reuse's encoding detection without needing libmagic.
+        run: pipx run --spec 'reuse[charset-normalizer]' reuse lint
+
+      - name: Tests (pytest, declared floor)
+        # trobar-ha#38's second half: prove the version we ADVERTISE works,
+        # not just the version we happen to pin.
+        #
+        # Deliberately a second pass inside this job rather than a
+        # `strategy.matrix` on it. A matrix renames the check runs to
+        # `validate (0.13.317)` / `validate (0.13.348)`, and bare `validate`
+        # — which is a required status check in the protect-main ruleset —
+        # would then never report, blocking every merge with "Required
+        # status check validate is expected" until an admin edits the
+        # ruleset. Same class of trap as the `Ready to merge gate /
+        # require-label` name mismatch. Keeping one job keeps the required
+        # context intact AND keeps the floor genuinely enforced; the
+        # alternative (a separate, non-required job) would run but couldn't
+        # block. Runs last so the pinned core's result surfaces first and
+        # the downgrade can't affect the steps above.
+        #
+        # `--below` is what stops this pass being vacuously satisfiable
+        # (trobar-ha#44). check_core.py's other assertions all pass just as
+        # happily against the PINNED core, so a downgrade that silently
+        # no-ops would re-run the same core twice and still report green —
+        # claiming two-core coverage it never delivered, which is the exact
+        # "green while testing nothing we advertise" state #38 existed to
+        # end. Comparing against the version observed before the install
+        # asserts the move happened without hardcoding the floor core here,
+        # and strictly-below (rather than merely different) also catches an
+        # accidental upgrade.
+        run: |
+          set -euo pipefail
+          before=$(python -c 'from importlib.metadata import version; print(version("homeassistant"))')
+          pip install "pytest-homeassistant-custom-component==${FLOOR_PYTEST_HA}"
+          python dev/check_core.py --below "$before"
+          pytest

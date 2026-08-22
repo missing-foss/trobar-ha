@@ -1,0 +1,6 @@
+# SPDX-FileCopyrightText: 2026 missing-foss
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+ruff==0.16.2
+pytest-homeassistant-custom-component==0.13.355

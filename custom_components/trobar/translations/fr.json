@@ -1,0 +1,90 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Se connecter à Trobar",
+        "description": "Indiquez l'URL de votre serveur Trobar et un token d'intégration créé dans Profil → Intégrations sur l'interface web de Trobar (compte administrateur requis).",
+        "data": {
+          "url": "URL du serveur",
+          "api_token": "Token d'intégration"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Ré-authentifier Trobar",
+        "description": "Le token pour {url} a été rejeté — il a peut-être été révoqué. Les tokens doivent désormais être créés par un compte administrateur (Profil → Intégrations). Indiquez-en un nouveau.",
+        "data": {
+          "api_token": "Token d'intégration"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Token invalide ou révoqué. Créez-en un nouveau dans Profil → Intégrations.",
+      "server_too_old": "Ce serveur Trobar est antérieur à la version 2.8.0, qui ne dispose pas de l'API d'intégration. Mettez à jour le serveur pour continuer.",
+      "rate_limited": "Trop de tentatives échouées. Patientez quelques minutes avant de réessayer.",
+      "cannot_connect": "Connexion impossible. Vérifiez l'URL du serveur.",
+      "unknown": "Erreur inattendue."
+    },
+    "abort": {
+      "already_configured": "Ce serveur Trobar est déjà configuré.",
+      "reauth_successful": "La ré-authentification a réussi."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "pending_tracks": {
+        "name": "Morceaux en attente"
+      },
+      "last_synced": {
+        "name": "Dernière synchronisation"
+      },
+      "free_space": {
+        "name": "Espace libre"
+      },
+      "total_space": {
+        "name": "Espace total"
+      },
+      "unknown_tracks": {
+        "name": "Morceaux inconnus"
+      },
+      "owner": {
+        "name": "Propriétaire"
+      },
+      "server_version": {
+        "name": "Version"
+      },
+      "server_tracks": {
+        "name": "Morceaux"
+      },
+      "server_library_size": {
+        "name": "Taille de la bibliothèque"
+      },
+      "server_last_scan": {
+        "name": "Dernière analyse"
+      },
+      "server_mirrors_failing": {
+        "name": "Miroirs en échec"
+      }
+    },
+    "binary_sensor": {
+      "reachable": {
+        "name": "Joignable"
+      },
+      "scan_running": {
+        "name": "Analyse en cours"
+      },
+      "mirrors_problem": {
+        "name": "Problème de miroir"
+      }
+    },
+    "button": {
+      "scan_library": {
+        "name": "Analyser la bibliothèque"
+      }
+    }
+  },
+  "device_automation": {
+    "trigger_type": {
+      "sync_completed": "{entity_name} a terminé sa synchronisation"
+    }
+  }
+}

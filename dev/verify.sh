@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: 2026 missing-foss
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Pre-push verification gate for trobar-ha. Run from the repo root:
+#   dev/verify.sh
+# CI (.github/workflows/ci.yml) runs the same checks, plus hassfest (Home
+# Assistant's own manifest/integration validator, which needs Docker and
+# isn't practical to run locally here — see ci.yml).
+set -uo pipefail
+cd "$(git rev-parse --show-toplevel)"
+fail=0
+step() { echo; echo "== $1 =="; }
+
+step "resolved HA core is supported"
+# Not a prerelease, and at or above hacs.json's declared minimum. See
+# dev/check_core.py for why both properties are asserted on the INSTALLED
+# distribution rather than on the pin. CI runs this twice — once per core
+# it tests (#38); locally it checks whatever venv you're in.
+if python3 -c "import homeassistant" >/dev/null 2>&1; then
+  if python3 dev/check_core.py; then echo ok; else fail=1; fi
+else
+  echo "SKIP (homeassistant not installed — pip install -r requirements-dev.txt) — CI still runs it"
+fi
+
+step "lint (ruff)"
+if command -v ruff >/dev/null 2>&1; then
+  ruff check . && echo ok || fail=1
+else
+  echo "SKIP (ruff not installed — pip install -r requirements-dev.txt) — CI still runs it"
+fi
+
+step "tests (pytest)"
+# Checked via the plugin import, not just `command -v pytest`: a `pytest`
+# binary from an unrelated project's venv earlier on PATH would otherwise
+# look "installed" here and then fail on the missing HA test harness.
+if python3 -c "import pytest_homeassistant_custom_component" >/dev/null 2>&1; then
+  pytest && echo ok || fail=1
+else
+  echo "SKIP (pytest-homeassistant-custom-component not installed — pip install -r requirements-dev.txt) — CI still runs it"
+fi
+
+step "leak scan (strings that must never ship)"
+# #404: `grep -f` on a missing terms file exits 2 (swallowed by 2>/dev/null
+# below), the `if` is then false, and this printed "ok" having scanned
+# nothing — fail-open, not fail-safe. `-s` catches missing AND empty in one
+# test, skipping the grep entirely so this doesn't ALSO scan (and pass)
+# against a pattern file with nothing in it.
+# The pattern list is NOT in this repository. A denylist that ships the terms
+# it exists to exclude publishes exactly what it is protecting -- which is what
+# used to happen here. Supply one via LEAK_PATTERNS to run it; with no
+# list configured this reports that it did not run rather than passing.
+if [ -n "${LEAK_PATTERNS:-}" ] && [ -s "${LEAK_PATTERNS}" ]; then
+  if git ls-files | xargs grep -InE -f "${LEAK_PATTERNS}" 2>/dev/null; then
+    echo "LEAK: forbidden term(s) above"; fail=1
+  else
+    echo "ok"
+  fi
+else
+  echo "SKIP (no LEAK_PATTERNS configured)"
+fi
+
+step "gitleaks (secrets)"
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks git --no-banner . && echo ok || fail=1
+else
+  echo "SKIP (gitleaks not installed) — CI still runs it"
+fi
+
+step "REUSE (per-file SPDX licensing)"
+if command -v reuse >/dev/null 2>&1; then
+  if reuse lint >/dev/null 2>&1; then echo ok; else reuse lint | tail -20; fail=1; fi
+else
+  echo "FAIL: reuse is not installed (pipx install reuse) — the licensing check cannot run"; fail=1
+fi
+
+step "Tracker references in published prose"
+# Public docs must stand alone: an issue number that outlives the tracker it
+# points at is worse than no citation. Excludes fenced blocks, inline code, hex
+# colours and heading anchors -- a guard that false-positives gets switched
+# off, and then protects nothing.
+if python3 dev/check-tracker-refs.py docs README.md SECURITY.md CONTRIBUTING.md; then
+  echo ok
+else
+  fail=1
+fi
+
+echo
+if [ "$fail" -eq 0 ]; then echo "VERIFY OK"; else echo "VERIFY FAILED"; fi
+exit "$fail"
