@@ -24,9 +24,9 @@ then it protects nothing. So:
   - HTML comments are skipped
   - a bare # followed by 1-4 digits, as a word, IS a tracker ref
 """
+import pathlib
 import re
 import sys
-import pathlib
 
 # Anchored on the # itself, so this catches BOTH bare `#123` and the
 # qualified `trobar-server#446` / `tracker#12` forms. An earlier version required
@@ -124,8 +124,8 @@ def scan(path):
 
 
 def main():
-    roots = [pathlib.Path(a) for a in (sys.argv[1:] or ["docs", "README.md",
-                                                        "SECURITY.md", "CONTRIBUTING.md"])]
+    defaults = ["docs", "README.md", "SECURITY.md", "CONTRIBUTING.md"]
+    roots = [pathlib.Path(a) for a in (sys.argv[1:] or defaults)]
     files = []
     for r in roots:
         if r.is_dir():
@@ -135,13 +135,13 @@ def main():
     bad = 0
     for f in files:
         for n, ref, ctx in scan(f):
-            print("%s:%d: tracker reference %s -- %s" % (f, n, ref, ctx))
+            print(f"{f}:{n}: tracker reference {ref} -- {ctx}")
             bad += 1
     for f, n, ctx in scan_source():
-        print("%s:%d: tracker pointer -- %s" % (f, n, ctx))
+        print(f"{f}:{n}: tracker pointer -- {ctx}")
         bad += 1
     if bad:
-        print("\n%d tracker reference(s) in prose or source comments." % bad)
+        print(f"\n{bad} tracker reference(s) in prose or source comments.")
         print("Public docs must stand alone: state the fact and drop the citation.")
         return 1
     # Say what was actually checked. The old message -- "no tracker references
