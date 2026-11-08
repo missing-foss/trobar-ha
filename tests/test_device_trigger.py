@@ -10,13 +10,18 @@ from homeassistant.components.device_automation import (
     DeviceAutomationType,
     async_get_device_automations,
 )
-from homeassistant.helpers import device_registry as dr
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import async_mock_service
 
 from custom_components.trobar.const import DOMAIN
 
-from .test_sensor import DEVICES_URL, PHONE_DEVICE, _setup_entry
+from .test_sensor import (
+    DEVICES_URL,
+    PHONE_DEVICE,
+    _device_identifier,
+    _registry_device,
+    _setup_entry,
+)
 
 
 async def _sync_completed_trigger(hass, device_id: str) -> dict:
@@ -30,8 +35,7 @@ async def test_sync_completed_trigger_is_offered(hass, aioclient_mock):
     """Every Trobar device offers exactly one "sync completed" trigger --
     not one per sensor, since domain-wide matching would offer six."""
     await _setup_entry(hass, aioclient_mock, [PHONE_DEVICE])
-    device_registry = dr.async_get(hass)
-    device = device_registry.async_get_device(identifiers={(DOMAIN, "1")})
+    device = _registry_device(hass, _device_identifier(hass, 1))
 
     triggers = await async_get_device_automations(
         hass, DeviceAutomationType.TRIGGER, [device.id]
@@ -66,8 +70,7 @@ async def test_sync_completed_fires_when_pending_drops_to_zero(hass, aioclient_m
     """Fires on the transition from pending > 0 to pending == 0 -- the
     "just finished" moment, not merely "currently caught up"."""
     entry = await _setup_entry(hass, aioclient_mock, [PHONE_DEVICE])
-    device_registry = dr.async_get(hass)
-    device = device_registry.async_get_device(identifiers={(DOMAIN, "1")})
+    device = _registry_device(hass, _device_identifier(hass, 1))
     trigger = await _sync_completed_trigger(hass, device.id)
 
     calls = async_mock_service(hass, "test", "automation")
@@ -91,8 +94,7 @@ async def test_sync_completed_does_not_fire_if_already_zero_at_setup(
     already_caught_up = copy.deepcopy(PHONE_DEVICE)
     already_caught_up["sync_status"]["pending_count"] = 0
     entry = await _setup_entry(hass, aioclient_mock, [already_caught_up])
-    device_registry = dr.async_get(hass)
-    device = device_registry.async_get_device(identifiers={(DOMAIN, "1")})
+    device = _registry_device(hass, _device_identifier(hass, 1))
     trigger = await _sync_completed_trigger(hass, device.id)
 
     calls = async_mock_service(hass, "test", "automation")
@@ -111,8 +113,7 @@ async def test_sync_completed_does_not_fire_if_already_zero_at_setup(
 async def test_sync_completed_does_not_fire_while_still_pending(hass, aioclient_mock):
     """A drop in pending count that doesn't reach zero isn't "completed"."""
     entry = await _setup_entry(hass, aioclient_mock, [PHONE_DEVICE])
-    device_registry = dr.async_get(hass)
-    device = device_registry.async_get_device(identifiers={(DOMAIN, "1")})
+    device = _registry_device(hass, _device_identifier(hass, 1))
     trigger = await _sync_completed_trigger(hass, device.id)
 
     calls = async_mock_service(hass, "test", "automation")

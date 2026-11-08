@@ -4,10 +4,11 @@
 
 """Binary sensor platform for Trobar (trobar-ha#25, mirror health).
 
-Three binary sensors on the hub-level "server" device: reachability,
-whether a library scan is currently running, and whether any playlist
-mirror is failing. The first two read from the server coordinator, not
-the device one; the third from the mirrors coordinator -- see
+Four binary sensors on the hub-level "server" device: reachability,
+whether a library scan is currently running, whether any playlist
+mirror is failing, and whether any playlist source keeps failing. The
+first two read from the server coordinator, not the device one; the
+others from the mirrors and playlist-sources coordinators -- see
 coordinator.py's module docstring for why they are kept separate.
 """
 
@@ -22,44 +23,61 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import TrobarConfigEntry
-from .const import server_device_identifier
+from .const import entity_unique_id
 from .coordinator import (
     TrobarMirrorsDataUpdateCoordinator,
+    TrobarPlaylistSourcesDataUpdateCoordinator,
     TrobarServerDataUpdateCoordinator,
 )
+from .device_info import server_device_info
 
 
 async def async_setup_entry(
     hass, entry: TrobarConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
+    # None on a server older than 2.9.0 -- see TrobarRuntimeData.
     coordinator = entry.runtime_data.server
-    async_add_entities(
-        [
-            TrobarReachableBinarySensor(coordinator),
-            TrobarScanRunningBinarySensor(coordinator),
-        ]
-    )
+    if coordinator is not None:
+        async_add_entities(
+            [
+                TrobarReachableBinarySensor(coordinator),
+                TrobarScanRunningBinarySensor(coordinator),
+            ]
+        )
 
     # None on a server older than 2.12.0 -- see TrobarRuntimeData.
     if entry.runtime_data.mirrors is not None:
-        async_add_entities([TrobarMirrorsProblemBinarySensor(entry.runtime_data.mirrors)])
+        async_add_entities(
+            [TrobarMirrorsProblemBinarySensor(entry.runtime_data.mirrors)]
+        )
+
+    # None on a server without playlist-source health -- see TrobarRuntimeData.
+    if entry.runtime_data.playlist_sources is not None:
+        async_add_entities(
+            [
+                TrobarPlaylistSourcesProblemBinarySensor(
+                    entry.runtime_data.playlist_sources
+                )
+            ]
+        )
 
 
 class _TrobarServerBinarySensorBase(
     CoordinatorEntity[TrobarServerDataUpdateCoordinator], BinarySensorEntity
 ):
     _attr_has_entity_name = True
+    _unique_key: str
 
     def __init__(self, coordinator: TrobarServerDataUpdateCoordinator) -> None:
         super().__init__(coordinator)
+        self._attr_unique_id = entity_unique_id(
+            coordinator.config_entry.entry_id, self._unique_key
+        )
 
     @property
     def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={server_device_identifier(self.coordinator.config_entry.entry_id)},
-            name="Trobar Server",
-            manufacturer="Trobar",
-            sw_version=(self.coordinator.data or {}).get("version"),
+        return server_device_info(
+            self.coordinator.config_entry, (self.coordinator.data or {}).get("version")
         )
 
 
@@ -78,7 +96,7 @@ class TrobarReachableBinarySensor(_TrobarServerBinarySensorBase):
 
     _attr_translation_key = "reachable"
     _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
-    _attr_unique_id = "server_reachable"
+    _unique_key = "server_reachable"
 
     @property
     def available(self) -> bool:
@@ -101,7 +119,7 @@ class TrobarScanRunningBinarySensor(_TrobarServerBinarySensorBase):
 
     _attr_translation_key = "scan_running"
     _attr_device_class = BinarySensorDeviceClass.RUNNING
-    _attr_unique_id = "server_scan_running"
+    _unique_key = "server_scan_running"
 
     @property
     def is_on(self) -> bool | None:
@@ -134,22 +152,54 @@ class TrobarMirrorsProblemBinarySensor(
 
     _attr_has_entity_name = True
     _attr_translation_key = "mirrors_problem"
-    _attr_unique_id = "server_mirrors_problem"
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
 
     def __init__(self, coordinator: TrobarMirrorsDataUpdateCoordinator) -> None:
         super().__init__(coordinator)
+        self._attr_unique_id = entity_unique_id(
+            coordinator.config_entry.entry_id, "server_mirrors_problem"
+        )
 
     @property
     def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={server_device_identifier(self.coordinator.config_entry.entry_id)},
-            name="Trobar Server",
-            manufacturer="Trobar",
-        )
+        return server_device_info(self.coordinator.config_entry)
 
     @property
     def is_on(self) -> bool | None:
         if self.coordinator.data is None:
             return None
         return self.coordinator.data["mirrors_failing"] > 0
+
+
+class TrobarPlaylistSourcesProblemBinarySensor(
+    CoordinatorEntity[TrobarPlaylistSourcesDataUpdateCoordinator], BinarySensorEntity
+):
+    """Whether any playlist source keeps failing: on while
+    `sources_alerting` is above zero.
+
+    It follows the server's alert rule (3 failed runs in a row, spanning
+    at least 12 hours), so an automation on it doesn't page over one bad
+    night. It reads the count, never `len(alerting)`, since that list is
+    capped -- the rule TrobarMirrorsProblemBinarySensor follows. Normal
+    availability, for the same reason as that one.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "playlist_sources_problem"
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+
+    def __init__(self, coordinator: TrobarPlaylistSourcesDataUpdateCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = entity_unique_id(
+            coordinator.config_entry.entry_id, "server_playlist_sources_problem"
+        )
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return server_device_info(self.coordinator.config_entry)
+
+    @property
+    def is_on(self) -> bool | None:
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.data["sources_alerting"] > 0

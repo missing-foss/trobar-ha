@@ -9,8 +9,9 @@ SPDX-License-Identifier: GPL-3.0-or-later
 This is the Home Assistant client of Trobar — the contribution guidelines,
 issue tracker conventions, and dev-environment notes live in the main server
 repository's `CONTRIBUTING.md` and `docs/`. Short version: open an issue
-before large PRs, `dev/verify.sh` must pass, contributions are
-`GPL-3.0-or-later` like the integration itself.
+before large PRs, AI-assisted patches are fine if you say so in the PR,
+`dev/verify.sh` must pass, contributions are `GPL-3.0-or-later` like the
+integration itself.
 
 Public issues and PRs live here on GitHub.
 

@@ -16,6 +16,8 @@ has nothing to do with any device.
 Mirrors adds a wrinkle the other two don't have: its server floor is
 2.12.0, four minors above the rest, so on an older server that one route
 404s while everything else works. See TrobarMirrorsDataUpdateCoordinator.
+GET /api/integrations/playlist-sources, newer still, is a fourth with the
+same wrinkle: TrobarPlaylistSourcesDataUpdateCoordinator.
 """
 
 from __future__ import annotations
@@ -26,7 +28,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import (
@@ -37,6 +39,7 @@ from .api import (
     TrobarRateLimitedError,
     TrobarServerTooOldError,
 )
+from .const import CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_MINUTES, DOMAIN
 
 _ERROR_MESSAGES: dict[type[TrobarApiError], str] = {
     TrobarAuthError: "Token was rejected -- it may have been revoked",
@@ -45,7 +48,31 @@ _ERROR_MESSAGES: dict[type[TrobarApiError], str] = {
     TrobarConnectionError: "Could not reach the server",
 }
 
+# The same failures, as translation keys under "exceptions", for errors
+# shown to a person: a button press or a service call.
+_ERROR_TRANSLATION_KEYS: dict[type[TrobarApiError], str] = {
+    TrobarAuthError: "token_rejected",
+    TrobarServerTooOldError: "server_too_old",
+    TrobarRateLimitedError: "rate_limited",
+    TrobarConnectionError: "cannot_connect",
+}
+
+
+def translated_error(err: TrobarApiError) -> HomeAssistantError:
+    """A HomeAssistantError that HA shows in the person's language; an error
+    type with no key of its own falls back to one naming the error."""
+    key = _ERROR_TRANSLATION_KEYS.get(type(err))
+    if key is None:
+        return HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="request_failed",
+            translation_placeholders={"error": str(err) or type(err).__name__},
+        )
+    return HomeAssistantError(translation_domain=DOMAIN, translation_key=key)
+
+
 _LOGGER = logging.getLogger(__name__)
+
 
 # Every request bumps last_used_at server-side and counts against the
 # token's own rate-limit bucket (30 failures / 5 min -- see api.py). Sync
@@ -62,7 +89,13 @@ _LOGGER = logging.getLogger(__name__)
 # cheap enough that matching the device poll (and getting "scan running"
 # /  "reachable" at the same freshness as everything else) costs nothing
 # worth trading away.
-UPDATE_INTERVAL = timedelta(minutes=5)
+#
+# The 5 minutes is the default; the options flow sets the interval per
+# config entry (1 to 60 minutes) and a change reloads the entry.
+def update_interval(entry: ConfigEntry) -> timedelta:
+    return timedelta(
+        minutes=entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_MINUTES)
+    )
 
 
 def _raise_for_api_error(err: TrobarApiError) -> None:
@@ -88,7 +121,10 @@ class TrobarDataUpdateCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]
             _LOGGER,
             config_entry=entry,
             name="Trobar",
-            update_interval=UPDATE_INTERVAL,
+            update_interval=update_interval(entry),
+            # Listeners (entity state writes, the device add/remove sync)
+            # run only when a poll returns something different.
+            always_update=False,
         )
         self._client = client
 
@@ -121,6 +157,11 @@ class TrobarServerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     doesn't belong inside _async_update_data, but the button still wants
     this coordinator's device-linkage and availability, not a client of
     its own to keep in sync.
+
+    `supported` works as the mirrors coordinator's does, for the same
+    reason: this route arrived in 2.9.0, and 2.8.1 is a supported floor
+    for the per-device sensors alone, so a 404 here skips the server
+    entities rather than failing (and endlessly retrying) the whole entry.
     """
 
     def __init__(
@@ -131,13 +172,23 @@ class TrobarServerDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER,
             config_entry=entry,
             name="Trobar server",
-            update_interval=UPDATE_INTERVAL,
+            update_interval=update_interval(entry),
+            # Listeners (entity state writes, the device add/remove sync)
+            # run only when a poll returns something different.
+            always_update=False,
         )
         self.client = client
+        self.supported = True
 
     async def _async_update_data(self) -> dict[str, Any]:
         try:
             return await self.client.async_get_server_status()
+        except TrobarServerTooOldError as err:
+            self.supported = False
+            raise UpdateFailed(
+                "Server route answered 404 (needs server 2.9.0+, or the "
+                "route isn't reachable)"
+            ) from err
         except TrobarApiError as err:
             _raise_for_api_error(err)
             raise AssertionError("unreachable")  # pragma: no cover
@@ -169,7 +220,10 @@ class TrobarMirrorsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER,
             config_entry=entry,
             name="Trobar mirrors",
-            update_interval=UPDATE_INTERVAL,
+            update_interval=update_interval(entry),
+            # Listeners (entity state writes, the device add/remove sync)
+            # run only when a poll returns something different.
+            always_update=False,
         )
         self._client = client
         self.supported = True
@@ -186,6 +240,49 @@ class TrobarMirrorsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(
                 "Mirrors route answered 404 (needs server 2.12.0+, or the "
                 "route isn't reachable)"
+            ) from err
+        except TrobarApiError as err:
+            _raise_for_api_error(err)
+            raise AssertionError("unreachable")  # pragma: no cover
+
+
+class TrobarPlaylistSourcesDataUpdateCoordinator(
+    DataUpdateCoordinator[dict[str, Any]]
+):
+    """Fetch playlist-source health: the library source, members' own
+    listings, linked streaming accounts and public links that a playlist
+    sync reads from. Its own coordinator, for the reason mirrors has one:
+    a failure here must not take the other entities down.
+
+    `supported` works exactly as TrobarMirrorsDataUpdateCoordinator's
+    does: the route is newer than every other one, so a 404 means "this
+    server predates playlist-source health" (or a proxy doesn't forward
+    the path), and __init__.py skips the two entities. It starts True and
+    only a 404 sets it False.
+    """
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, client: TrobarApiClient
+    ) -> None:
+        super().__init__(
+            hass,
+            _LOGGER,
+            config_entry=entry,
+            name="Trobar playlist sources",
+            update_interval=update_interval(entry),
+            always_update=False,
+        )
+        self._client = client
+        self.supported = True
+
+    async def _async_update_data(self) -> dict[str, Any]:
+        try:
+            return await self._client.async_get_playlist_sources()
+        except TrobarServerTooOldError as err:
+            self.supported = False
+            raise UpdateFailed(
+                "Playlist sources route answered 404 (needs a server with "
+                "playlist-source health, or the route isn't reachable)"
             ) from err
         except TrobarApiError as err:
             _raise_for_api_error(err)

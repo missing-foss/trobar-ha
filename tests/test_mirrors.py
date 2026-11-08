@@ -18,7 +18,7 @@ from homeassistant.helpers import entity_registry as er
 
 from custom_components.trobar.const import DOMAIN
 
-from .test_sensor import MIRRORS_URL, _setup_entry
+from .test_sensor import MIRRORS_URL, _setup_entry, _uid
 
 # One sink dead (subsonic), one odd playlist elsewhere (jellyfin), one
 # sink configured nowhere (emby), and a mirror that has never once
@@ -84,13 +84,13 @@ TRUNCATED_MIRRORS = {
 
 def _sensor_id(hass) -> str | None:
     return er.async_get(hass).async_get_entity_id(
-        "sensor", DOMAIN, "server_mirrors_failing"
+        "sensor", DOMAIN, _uid(hass, "server_mirrors_failing")
     )
 
 
 def _problem_id(hass) -> str | None:
     return er.async_get(hass).async_get_entity_id(
-        "binary_sensor", DOMAIN, "server_mirrors_problem"
+        "binary_sensor", DOMAIN, _uid(hass, "server_mirrors_problem")
     )
 
 
@@ -216,7 +216,7 @@ async def test_other_entities_survive_a_missing_mirrors_route(hass, aioclient_mo
     await _setup_entry(hass, aioclient_mock, [], mirrors_status=404)
 
     reachable = er.async_get(hass).async_get_entity_id(
-        "binary_sensor", DOMAIN, "server_reachable"
+        "binary_sensor", DOMAIN, _uid(hass, "server_reachable")
     )
     assert hass.states.get(reachable).state == STATE_ON
 
@@ -253,3 +253,104 @@ async def test_a_failed_poll_does_not_mark_the_route_unsupported(hass, aioclient
     await hass.async_block_till_done()
 
     assert entry.runtime_data.mirrors.supported is True
+
+
+# A server with coverage: two pairs short of their target, one of them on a
+# sink that also has a failing pair. Shape as trobar-server's integrations
+# mirrors route builds it.
+COVERAGE_MIRRORS = {
+    **FAILING_MIRRORS,
+    "by_sink": {
+        "filesystem": {"enabled": 4, "failing": 0, "short": 0},
+        "subsonic": {"enabled": 6, "failing": 2, "short": 1},
+        "jellyfin": {"enabled": 6, "failing": 1, "short": 1},
+        "emby": {"enabled": 0, "failing": 0, "short": 0},
+    },
+    "mirrors_short": 2,
+    "short": [
+        {"playlist_id": 12, "title": "Road Trip", "sink": "subsonic", "on_target": 38,
+         "total": 41, "lacked": 3, "refused": 0, "run_at": "2026-10-12T08:00:00Z"},
+        {"playlist_id": 40, "title": "Kids", "sink": "jellyfin", "on_target": 10,
+         "total": 12, "lacked": 1, "refused": 1, "run_at": "2026-10-12T08:00:05Z"},
+    ],
+    "short_truncated": False,
+}
+
+
+async def test_coverage_travels_as_attributes(hass, aioclient_mock):
+    await _setup_entry(hass, aioclient_mock, [], mirrors=COVERAGE_MIRRORS)
+
+    attrs = hass.states.get(_sensor_id(hass)).attributes
+    assert attrs["mirrors_short"] == 2
+    shown = [
+        (c["playlist_id"], c["sink"], c["lacked"], c["refused"])
+        for c in attrs["coverage"]
+    ]
+    assert shown == [(12, "subsonic", 3, 0), (40, "jellyfin", 1, 1)]
+    assert attrs["coverage_truncated"] is False
+    assert attrs["by_sink"]["jellyfin"]["short"] == 1
+
+
+async def test_coverage_is_not_an_alarm(hass, aioclient_mock):
+    """Short is not failing: with every pair short and none failing, the
+    state is 0 and the problem binary sensor stays off."""
+    no_failing_by_sink = {
+        sink: {**counts, "failing": 0}
+        for sink, counts in COVERAGE_MIRRORS["by_sink"].items()
+    }
+    only_short = {
+        **COVERAGE_MIRRORS,
+        "mirrors_failing": 0,
+        "failing": [],
+        "by_sink": no_failing_by_sink,
+    }
+    await _setup_entry(hass, aioclient_mock, [], mirrors=only_short)
+
+    assert hass.states.get(_sensor_id(hass)).state == "0"
+    assert hass.states.get(_problem_id(hass)).state == STATE_OFF
+    assert hass.states.get(_sensor_id(hass)).attributes["mirrors_short"] == 2
+
+
+async def test_a_server_without_coverage_adds_no_coverage_attributes(
+    hass, aioclient_mock
+):
+    await _setup_entry(hass, aioclient_mock, [], mirrors=FAILING_MIRRORS)
+
+    attrs = hass.states.get(_sensor_id(hass)).attributes
+    assert "mirrors_short" not in attrs
+    assert "coverage" not in attrs
+    assert "coverage_truncated" not in attrs
+
+
+
+# More pairs short than the 50-entry worklist holds: the count stays exact
+# and the flag says the list is cut, as with failing.
+TRUNCATED_COVERAGE = {
+    **COVERAGE_MIRRORS,
+    "mirrors_short": 51,
+    "short": [
+        {
+            "playlist_id": i,
+            "title": f"Playlist {i}",
+            "sink": "subsonic",
+            "on_target": 9,
+            "total": 10,
+            "lacked": 1,
+            "refused": 0,
+            "run_at": "2026-10-12T08:00:00Z",
+        }
+        for i in range(50)
+    ],
+    "short_truncated": True,
+}
+
+
+async def test_truncated_coverage_keeps_the_exact_count_and_says_so(
+    hass, aioclient_mock
+):
+    await _setup_entry(hass, aioclient_mock, [], mirrors=TRUNCATED_COVERAGE)
+
+    attrs = hass.states.get(_sensor_id(hass)).attributes
+    assert attrs["mirrors_short"] == 51
+    assert len(attrs["coverage"]) == 50
+    assert attrs["coverage_truncated"] is True

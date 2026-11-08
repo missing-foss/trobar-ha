@@ -18,23 +18,32 @@ precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 missing-foss"
 SPDX-License-Identifier = "GPL-3.0-or-later"
 
-# --- First-party brand artwork (PNG has no comment syntax) -----------------
+# --- First-party brand artwork (PNG has no comment syntax), rendered by
+# dev/render_brand.sh. The icons are the rosette mark alone. -------------------
 [[annotations]]
 path = [
     "custom_components/trobar/brand/icon.png",
     "custom_components/trobar/brand/icon@2x.png",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 missing-foss"
+SPDX-License-Identifier = "GPL-3.0-or-later"
+
+# --- The logos also carry the wordmark: Fredoka glyphs outlined to paths ------
+[[annotations]]
+path = [
     "custom_components/trobar/brand/logo.png",
     "custom_components/trobar/brand/logo@2x.png",
     "custom_components/trobar/brand/dark_logo.png",
     "custom_components/trobar/brand/dark_logo@2x.png",
 ]
 precedence = "aggregate"
-SPDX-FileCopyrightText = "2026 missing-foss"
-SPDX-License-Identifier = "GPL-3.0-or-later"
+SPDX-FileCopyrightText = ["2026 missing-foss", "2016 The Fredoka Project Authors"]
+SPDX-License-Identifier = "GPL-3.0-or-later AND OFL-1.1"
 
-# --- hacs.json (JSON has no comment syntax) ---------------------------------
+# --- hacs.json, renovate.json (JSON has no comment syntax) -----------------
 [[annotations]]
-path = "hacs.json"
+path = ["hacs.json", "renovate.json"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 missing-foss"
 SPDX-License-Identifier = "GPL-3.0-or-later"

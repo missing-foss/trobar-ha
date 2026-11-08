@@ -12,14 +12,16 @@ from homeassistant.helpers import entity_registry as er
 
 from custom_components.trobar.const import DOMAIN
 
-from .test_sensor import SERVER_URL, _setup_entry
+from .test_sensor import SERVER_URL, _setup_entry, _uid
 
 ACTIONS_SCAN_URL = "http://trobar.local/api/integrations/actions/scan"
 
 
 def _button_entity_id(hass) -> str | None:
     registry = er.async_get(hass)
-    return registry.async_get_entity_id("button", DOMAIN, "server_scan_library")
+    return registry.async_get_entity_id(
+        "button", DOMAIN, _uid(hass, "server_scan_library")
+    )
 
 
 async def _press(hass, entity_id: str) -> None:
@@ -55,8 +57,9 @@ async def test_press_with_a_bad_token_raises_a_readable_error(hass, aioclient_mo
     await _setup_entry(hass, aioclient_mock, [])
     aioclient_mock.post(ACTIONS_SCAN_URL, status=401)
 
-    with pytest.raises(HomeAssistantError):
+    with pytest.raises(HomeAssistantError, match="rejected the token") as err:
         await _press(hass, _button_entity_id(hass))
+    assert err.value.translation_key == "token_rejected"
 
 
 async def test_button_unavailable_when_the_server_cant_be_reached(hass, aioclient_mock):

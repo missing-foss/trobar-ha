@@ -15,6 +15,14 @@
         "data": {
           "api_token": "Integration token"
         }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Trobar",
+        "description": "Change the address or the token for {url}. A new address needs the token pasted again: the current token is never sent to a new address. With the same address, paste a new token, or leave it empty to keep the current one.",
+        "data": {
+          "url": "Server URL",
+          "api_token": "Integration token"
+        }
       }
     },
     "error": {
@@ -22,11 +30,15 @@
       "server_too_old": "This Trobar server is older than 2.8.0, which doesn't have the integration API. Upgrade the server to continue.",
       "rate_limited": "Too many failed attempts. Wait a few minutes before trying again.",
       "cannot_connect": "Could not connect. Check the server URL.",
-      "unknown": "Unexpected error."
+      "url_needs_scheme": "Enter the full address, starting with https:// or http://. The token is sent to it on every update, and over http:// it travels unencrypted.",
+      "unknown": "Unexpected error.",
+      "token_required_for_new_address": "A new address needs the token pasted again. The current token is never sent to an address that has just been entered."
     },
     "abort": {
       "already_configured": "This Trobar server is already configured.",
-      "reauth_successful": "Re-authentication was successful."
+      "reauth_successful": "Re-authentication was successful.",
+      "reconfigure_unchanged": "Nothing changed.",
+      "reconfigure_successful": "The Trobar server's settings were updated."
     }
   },
   "entity": {
@@ -63,6 +75,9 @@
       },
       "server_mirrors_failing": {
         "name": "Mirrors failing"
+      },
+      "server_playlist_sources_failing": {
+        "name": "Failing playlist sources"
       }
     },
     "binary_sensor": {
@@ -74,6 +89,9 @@
       },
       "mirrors_problem": {
         "name": "Mirror problem"
+      },
+      "playlist_sources_problem": {
+        "name": "Playlist sources problem"
       }
     },
     "button": {
@@ -85,6 +103,70 @@
   "device_automation": {
     "trigger_type": {
       "sync_completed": "{entity_name} finished syncing"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Trobar options",
+        "description": "How often Home Assistant asks the Trobar server for news, in minutes (1 to 60).",
+        "data": {
+          "scan_interval": "Poll interval (minutes)"
+        }
+      }
+    }
+  },
+  "services": {
+    "scan_library": {
+      "name": "Scan library",
+      "description": "Asks a Trobar server to rescan its music library. A scan already running counts as done.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Server",
+          "description": "The Trobar server to scan."
+        },
+        "force": {
+          "name": "Force",
+          "description": "Re-read every file, not only those changed since the last scan."
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "entry_not_loaded": {
+      "message": "That Trobar server isn't loaded."
+    },
+    "scan_not_supported": {
+      "message": "This Trobar server is older than 2.9.0, which can't start a scan from Home Assistant."
+    },
+    "token_rejected": {
+      "message": "The Trobar server rejected the token. It may have been revoked."
+    },
+    "server_too_old": {
+      "message": "This Trobar server is too old for the integration API (2.8.0 or later is needed)."
+    },
+    "rate_limited": {
+      "message": "The Trobar server is rate-limiting this token. Try again in a few minutes."
+    },
+    "cannot_connect": {
+      "message": "Could not reach the Trobar server."
+    },
+    "request_failed": {
+      "message": "The Trobar server request failed: {error}"
+    }
+  },
+  "issues": {
+    "server_route_missing": {
+      "title": "Trobar server at {url}: no server entities",
+      "description": "The server answered 404 for its status route, so the server device's entities (reachability, scan running, version, tracks, library size, last scan and the Scan library button) aren't set up. Either the server is older than {version}, or a reverse proxy in front of it doesn't forward that path. Upgrade the server or fix the proxy, then reload the integration; this notice goes away once the route answers."
+    },
+    "mirrors_route_missing": {
+      "title": "Trobar server at {url}: no mirror health entities",
+      "description": "The server answered 404 for its mirrors route, so the mirror health entities aren't set up. Either the server is older than {version}, or a reverse proxy in front of it doesn't forward that path. Upgrade the server or fix the proxy, then reload the integration; this notice goes away once the route answers."
+    },
+    "playlist_sources_route_missing": {
+      "title": "Trobar server at {url}: no playlist source health entities",
+      "description": "The server answered 404 for its playlist sources route, so the playlist source health entities aren't set up. Either the server predates playlist source health, or a reverse proxy in front of it doesn't forward that path. Upgrade the server or fix the proxy, then reload the integration; this notice goes away once the route answers."
     }
   }
 }

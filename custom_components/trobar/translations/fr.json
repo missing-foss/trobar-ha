@@ -15,6 +15,14 @@
         "data": {
           "api_token": "Token d'intégration"
         }
+      },
+      "reconfigure": {
+        "title": "Reconfigurer Trobar",
+        "description": "Modifiez l'adresse ou le token de {url}. Une nouvelle adresse demande de coller à nouveau le token : le token actuel n'est jamais envoyé à une nouvelle adresse. Avec la même adresse, collez un nouveau token, ou laissez le champ vide pour conserver l'actuel.",
+        "data": {
+          "url": "URL du serveur",
+          "api_token": "Token d'intégration"
+        }
       }
     },
     "error": {
@@ -22,11 +30,15 @@
       "server_too_old": "Ce serveur Trobar est antérieur à la version 2.8.0, qui ne dispose pas de l'API d'intégration. Mettez à jour le serveur pour continuer.",
       "rate_limited": "Trop de tentatives échouées. Patientez quelques minutes avant de réessayer.",
       "cannot_connect": "Connexion impossible. Vérifiez l'URL du serveur.",
-      "unknown": "Erreur inattendue."
+      "url_needs_scheme": "Saisissez l'adresse complète, commençant par https:// ou http://. Le jeton lui est envoyé à chaque mise à jour, et en http:// il circule sans chiffrement.",
+      "unknown": "Erreur inattendue.",
+      "token_required_for_new_address": "Une nouvelle adresse demande de coller à nouveau le token. Le token actuel n'est jamais envoyé à une adresse qui vient d'être saisie."
     },
     "abort": {
       "already_configured": "Ce serveur Trobar est déjà configuré.",
-      "reauth_successful": "La ré-authentification a réussi."
+      "reauth_successful": "La ré-authentification a réussi.",
+      "reconfigure_unchanged": "Rien n'a changé.",
+      "reconfigure_successful": "Les paramètres du serveur Trobar ont été mis à jour."
     }
   },
   "entity": {
@@ -63,6 +75,9 @@
       },
       "server_mirrors_failing": {
         "name": "Miroirs en échec"
+      },
+      "server_playlist_sources_failing": {
+        "name": "Sources de playlists en échec"
       }
     },
     "binary_sensor": {
@@ -74,6 +89,9 @@
       },
       "mirrors_problem": {
         "name": "Problème de miroir"
+      },
+      "playlist_sources_problem": {
+        "name": "Problème de source de playlists"
       }
     },
     "button": {
@@ -85,6 +103,70 @@
   "device_automation": {
     "trigger_type": {
       "sync_completed": "{entity_name} a terminé sa synchronisation"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options de Trobar",
+        "description": "À quelle fréquence Home Assistant interroge le serveur Trobar, en minutes (de 1 à 60).",
+        "data": {
+          "scan_interval": "Intervalle d'interrogation (minutes)"
+        }
+      }
+    }
+  },
+  "services": {
+    "scan_library": {
+      "name": "Analyser la bibliothèque",
+      "description": "Demande à un serveur Trobar de réanalyser sa bibliothèque musicale. Une analyse déjà en cours compte comme faite.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Serveur",
+          "description": "Le serveur Trobar à analyser."
+        },
+        "force": {
+          "name": "Forcer",
+          "description": "Relire tous les fichiers, pas seulement ceux modifiés depuis la dernière analyse."
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "entry_not_loaded": {
+      "message": "Ce serveur Trobar n'est pas chargé."
+    },
+    "scan_not_supported": {
+      "message": "Ce serveur Trobar est antérieur à la 2.9.0 et ne peut pas lancer d'analyse depuis Home Assistant."
+    },
+    "token_rejected": {
+      "message": "Le serveur Trobar a rejeté le token. Il a peut-être été révoqué."
+    },
+    "server_too_old": {
+      "message": "Ce serveur Trobar est trop ancien pour l'API d'intégration (2.8.0 ou ultérieure requise)."
+    },
+    "rate_limited": {
+      "message": "Le serveur Trobar limite les requêtes de ce token. Réessayez dans quelques minutes."
+    },
+    "cannot_connect": {
+      "message": "Impossible de joindre le serveur Trobar."
+    },
+    "request_failed": {
+      "message": "La requête au serveur Trobar a échoué : {error}"
+    }
+  },
+  "issues": {
+    "server_route_missing": {
+      "title": "Serveur Trobar {url} : pas d'entités du serveur",
+      "description": "Le serveur a répondu 404 pour sa route d'état : les entités de l'appareil serveur (joignable, analyse en cours, version, morceaux, taille de la bibliothèque, dernière analyse et le bouton Analyser la bibliothèque) ne sont pas créées. Soit le serveur est antérieur à la {version}, soit un proxy inverse devant lui ne transmet pas ce chemin. Mettez le serveur à jour ou corrigez le proxy, puis rechargez l'intégration ; cet avis disparaît dès que la route répond."
+    },
+    "mirrors_route_missing": {
+      "title": "Serveur Trobar {url} : pas d'entités de santé des miroirs",
+      "description": "Le serveur a répondu 404 pour sa route des miroirs : les entités de santé des miroirs ne sont pas créées. Soit le serveur est antérieur à la {version}, soit un proxy inverse devant lui ne transmet pas ce chemin. Mettez le serveur à jour ou corrigez le proxy, puis rechargez l'intégration ; cet avis disparaît dès que la route répond."
+    },
+    "playlist_sources_route_missing": {
+      "title": "Serveur Trobar {url} : pas d'entités de santé des sources de playlists",
+      "description": "Le serveur a répondu 404 pour sa route des sources de playlists : les entités de santé des sources de playlists ne sont pas créées. Soit le serveur ne suit pas encore la santé des sources de playlists, soit un proxy inverse devant lui ne transmet pas ce chemin. Mettez le serveur à jour ou corrigez le proxy, puis rechargez l'intégration ; cet avis disparaît dès que la route répond."
     }
   }
 }

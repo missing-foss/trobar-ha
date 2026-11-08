@@ -7,6 +7,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 # trobar-ha
 
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/missing-foss/trobar-ha/badge)](https://securityscorecards.dev/viewer/?uri=github.com/missing-foss/trobar-ha)
+[![Support on Ko-fi](https://img.shields.io/badge/Ko--fi-support-FF5E5B?logo=kofi&logoColor=white)](https://ko-fi.com/missingfoss)
 
 Home Assistant integration for [Trobar](https://github.com/missing-foss/trobar-server)
 — the household dashboard for offline music sync: per-device status, card
@@ -28,19 +29,31 @@ surfaces the sync lifecycle, not playback.
 
 ## Status
 
-**Working, installable, not yet in the HACS default store.** The
+**Working, installable, not yet in the Marketplace's default catalog.** The
 integration adds via config flow (URL + an admin-minted integration
 token, validated live; re-authenticates in place if the token is later
 revoked). It polls `GET /api/integrations/devices` and creates one Home
 Assistant device per Trobar device with six sensors each: pending
 tracks, last synced, free space, total space, unknown tracks, and owner
-(diagnostic).
+(diagnostic). It polls every 5 minutes by default; the integration's
+**Configure** button sets the interval, from 1 to 60 minutes, per server.
 
 It also creates one hub-level **"server" device**: reachability and
 scan-running binary sensors, version/track-count/library-size/last-scan
-sensors, and a **"Scan library" button** that triggers a rescan.
+sensors, and a **"Scan library" button** that triggers a rescan. The
+same rescan is the **`trobar.scan_library`** action for automations and
+scripts, with a `force` option to re-read every file, not only the ones
+changed since the last scan; it answers whether it started a scan (it
+doesn't when one is already running).
 Reachability is always available, even when the server can't be reached at
 all — that's the one state it exists to report.
+
+Two more entities on the server device watch the places playlist syncs read
+from (the library source, members' own listings, linked streaming accounts and
+public links): **"Playlist sources problem"**, on while any of them keeps
+failing, and **"Failing playlist sources"**, how many, with the list as
+attributes. Both follow the server's rule — 3 failed syncs in a row, over at
+least 12 hours — so one bad night doesn't page anyone.
 
 Ships in English and French.
 
@@ -52,7 +65,7 @@ on the storage and pending-tracks sensors. A "hasn't synced in N days"
 watchdog isn't a state transition, so it's better built with Home
 Assistant's own `template` trigger than modelled here.
 
-Not yet done: notifications and a default-store HACS listing — deferred
+Not yet done: notifications and a listing in the Marketplace's default catalog — deferred
 until the integration has seen some real use.
 
 The integration depends on Trobar's integration API and an admin-minted
@@ -62,13 +75,24 @@ way Trobar's own web UI does, which is why a token is needed at all.
 
 ## Installation
 
-Not in the HACS default store yet — add it as a **custom repository**:
+Trobar isn't in the Marketplace's default catalog yet, so it's added as a
+custom repository.
+
+**Home Assistant 2026.11 and later** (the Marketplace, under **Settings**):
+
+[![Open your Home Assistant instance and open this repository in the Marketplace.](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=missing-foss&repository=trobar-ha&category=integration)
+
+The link opens the repository in your Marketplace, which offers to add it
+as a custom repository first. Download it, then restart Home Assistant.
+
+**Home Assistant 2026.10 and older** (HACS, installed separately):
 
 1. HACS → ⋮ → **Custom repositories**
 2. URL `https://github.com/missing-foss/trobar-ha`, category **Integration**
-3. Install, then restart Home Assistant
-4. **Settings → Devices & Services → Add Integration → Trobar**, and enter
-   your server's URL and a token from **Profile → Integrations** in
+3. Download, then restart Home Assistant
+
+**Then, either way:** **Settings → Devices & Services → Add Integration → Trobar**, and enter
+   your server's full URL, with `https://` or `http://`, and a token from **Profile → Integrations** in
    Trobar's web UI — that tab is admin-only, since minting a token
    requires it
 
@@ -77,7 +101,9 @@ Not in the HACS default store yet — add it as a **custom repository**:
 - A running [Trobar server](https://github.com/missing-foss/trobar-server),
   version **2.12.0 or later** for the full feature set: the mirror-health
   entities need 2.12.0, and the server device, reachability and the rescan
-  button need **2.9.0**.
+  button need **2.9.0**. The playlist-source entities need the first server
+  release after 2.17.0. On an older server, **Settings → Repairs** says
+  which of them were skipped and why.
   **2.8.1** is the floor if you only want the per-device sensors (2.8.0
   shipped the read-only integration API; 2.8.1 fixed a
   boolean-serialization bug in it) —
@@ -85,7 +111,7 @@ Not in the HACS default store yet — add it as a **custom repository**:
   user, and upgrading to 2.9.0 later revokes any token that wasn't
   created by an admin (see trobar-server's own
   [upgrade notes](https://missing-foss.github.io/trobar-server/operations/upgrading/)).
-- Home Assistant **2026.3.0 or later** (for locally-shipped brand images —
+- Home Assistant **2026.3.1 or later** (for locally-shipped brand images —
  see `hacs.json`).
 
 ## Contributing
@@ -96,6 +122,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Full Trobar documentation lives on the
 [Trobar documentation site](https://missing-foss.github.io/trobar-server/).
+
+## Support
+
+The integration is free software, like the rest of Trobar. If it's useful in your Home Assistant, you can [support Trobar on Ko-fi](https://ko-fi.com/missingfoss).
+
+Support pays for test devices, infrastructure and Claude. Mostly, it buys a good coffee and keeps the motivation going for the next projects.
 
 ## License
 

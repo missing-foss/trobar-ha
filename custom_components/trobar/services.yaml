@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2026 missing-foss
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+scan_library:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: trobar
+    force:
+      required: false
+      default: false
+      selector:
+        boolean:

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "Version bumps for the pins nobody would otherwise refresh: the dev requirements, the CI job container's python image and the workflow actions.",
+    "Renovate opens one pull request per group, weekly, and stops; review, CI and the merge desk take it from there like any other.",
+    "minimumReleaseAge is the cool-down: nothing younger than three days is proposed.",
+    "The floor core the suite also runs against (FLOOR_PYTEST_HA in the workflows) is deliberately not bumped: it tracks hacs.json's minimum, not the newest release."
+  ],
+  "extends": ["config:recommended"],
+  "timezone": "Europe/Zurich",
+  "schedule": ["* 0-5 * * 3"],
+  "minimumReleaseAge": "3 days",
+  "minimumReleaseAgeBehaviour": "timestamp-optional",
+  "enabledManagers": ["pip_requirements", "github-actions"],
+  "pinDigests": true,
+  "automerge": false,
+  "rebaseWhen": "behind-base-branch",
+  "packageRules": [
+    {"matchManagers": ["pip_requirements"], "groupName": "Python dependencies"},
+    {
+      "description": "pytest-homeassistant-custom-component pins an exact homeassistant and is cut for every HA beta, so a bump can land on a beta core, which dev/check_core.py rejects. Its own pull request, so a red one holds nothing else up.",
+      "matchManagers": ["pip_requirements"],
+      "matchPackageNames": ["pytest-homeassistant-custom-component"],
+      "groupName": "Home Assistant test core"
+    },
+    {"matchManagers": ["github-actions"], "groupName": "workflow actions"},
+    {
+      "description": "A new Python minor changes the interpreter the CI job containers run, which HA's own Requires-Python bounds: its own pull request, never part of a weekly group.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["python"],
+      "matchUpdateTypes": ["minor", "major"],
+      "groupName": "Python image upgrade"
+    },
+    {
+      "description": "Held below 3.15 while Home Assistant's Requires-Python stops before it: CI refuses a 3.15 image by design, so the pull request could never merge. Remove this rule when HA admits 3.15.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["python"],
+      "allowedVersions": "<3.15"
+    },
+    {
+      "description": "Workflows outside .github run on the forge's runner, which is not GitHub: a newer action major can need a newer node than it has. Digest refreshes only there.",
+      "matchManagers": ["github-actions"],
+      "matchFileNames": ["!.github/workflows/**"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    }
+  ]
+}

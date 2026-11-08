@@ -15,15 +15,15 @@ from __future__ import annotations
 import logging
 
 from homeassistant.components.button import ButtonEntity
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import TrobarConfigEntry
 from .api import TrobarApiError
-from .const import server_device_identifier
-from .coordinator import _ERROR_MESSAGES, TrobarServerDataUpdateCoordinator
+from .const import entity_unique_id
+from .coordinator import TrobarServerDataUpdateCoordinator, translated_error
+from .device_info import server_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,7 +31,9 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(
     hass, entry: TrobarConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    async_add_entities([TrobarScanButton(entry.runtime_data.server)])
+    # None on a server older than 2.9.0 -- see TrobarRuntimeData.
+    if entry.runtime_data.server is not None:
+        async_add_entities([TrobarScanButton(entry.runtime_data.server)])
 
 
 class TrobarScanButton(
@@ -45,15 +47,17 @@ class TrobarScanButton(
 
     _attr_has_entity_name = True
     _attr_translation_key = "scan_library"
-    _attr_unique_id = "server_scan_library"
+
+    def __init__(self, coordinator: TrobarServerDataUpdateCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = entity_unique_id(
+            coordinator.config_entry.entry_id, "server_scan_library"
+        )
 
     @property
     def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={server_device_identifier(self.coordinator.config_entry.entry_id)},
-            name="Trobar Server",
-            manufacturer="Trobar",
-            sw_version=(self.coordinator.data or {}).get("version"),
+        return server_device_info(
+            self.coordinator.config_entry, (self.coordinator.data or {}).get("version")
         )
 
     async def async_press(self) -> None:
@@ -78,8 +82,7 @@ class TrobarScanButton(
             # a bad token and starts reauth the normal way (trobar-ha#28)
             # within one interval; this just surfaces a readable error
             # for the press itself rather than a bare exception name.
-            message = _ERROR_MESSAGES.get(type(err), str(err) or type(err).__name__)
-            raise HomeAssistantError(message) from err
+            raise translated_error(err) from err
         if not started:
             _LOGGER.debug("Trobar scan already running; press had nothing new to start")
         await self.coordinator.async_request_refresh()

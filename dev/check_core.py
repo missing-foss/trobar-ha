@@ -58,7 +58,7 @@ from pathlib import Path
 
 HACS_JSON = Path(__file__).resolve().parent.parent / "hacs.json"
 
-# HA 2026.3.0 — the minimum hacs.json advertises — declares
+# HA 2026.3.1 — the minimum hacs.json advertises — declares
 # `Requires-Python >=3.14.2`. ONE decision lives in THREE places: this
 # constant, `python-version` in .github/workflows/ci.yml, and the core
 # minimum in hacs.json that both derive from. Nothing asserts the three

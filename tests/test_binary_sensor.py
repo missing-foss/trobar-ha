@@ -9,12 +9,12 @@ from homeassistant.helpers import entity_registry as er
 
 from custom_components.trobar.const import DOMAIN
 
-from .test_sensor import SAMPLE_SERVER_STATUS, SERVER_URL, _setup_entry
+from .test_sensor import SAMPLE_SERVER_STATUS, SERVER_URL, _setup_entry, _uid
 
 
 def _entity_id(hass, platform: str, unique_id: str) -> str | None:
     registry = er.async_get(hass)
-    return registry.async_get_entity_id(platform, DOMAIN, unique_id)
+    return registry.async_get_entity_id(platform, DOMAIN, _uid(hass, unique_id))
 
 
 async def test_reachable_is_on_after_a_successful_poll(hass, aioclient_mock):

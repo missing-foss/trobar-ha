@@ -22,6 +22,7 @@ import aiohttp
 DEVICES_PATH = "/api/integrations/devices"
 SERVER_PATH = "/api/integrations/server"
 MIRRORS_PATH = "/api/integrations/mirrors"
+PLAYLIST_SOURCES_PATH = "/api/integrations/playlist-sources"
 ACTIONS_SCAN_PATH = "/api/integrations/actions/scan"
 
 # The server's own rate limit on these routes is its own bucket (30
@@ -76,21 +77,22 @@ class TrobarConnectionError(TrobarApiError):
     worth the extra UI copy."""
 
 
+def has_url_scheme(raw: str) -> bool:
+    """Whether a pasted server URL says http:// or https:// itself."""
+    return raw.strip().lower().startswith(("http://", "https://"))
+
+
 def normalize_base_url(raw: str) -> str:
     """Canonicalise a user-pasted server URL.
 
     Used both as the outgoing request base and as the config entry's
     unique ID -- the payload carries no server-side instance id (see
     trobar-ha#4), so two entries typed slightly differently but pointing
-    at the same server must still collapse to one. Decided once, here:
-    default to "http://" when no scheme is given (self-hosted Trobar
-    instances are typically LAN-only and plain), lower-case the scheme
-    and host, and drop a trailing slash.
+    at the same server must still collapse to one. Lower-cases the scheme
+    and host and drops a trailing slash. It never adds a scheme: the config
+    flow refuses a URL without one (has_url_scheme).
     """
-    raw = raw.strip()
-    if "://" not in raw:
-        raw = f"http://{raw}"
-    parts = urlsplit(raw)
+    parts = urlsplit(raw.strip())
     path = parts.path.rstrip("/")
     return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), path, "", ""))
 
@@ -103,11 +105,13 @@ def parse_server_timestamp(raw: str | None) -> datetime | None:
     and no offset, so it is not quite ISO 8601. `datetime.fromisoformat`
     accepts the space-separated form directly (Python 3.11+); the UTC
     offset still has to be attached by hand, since the string itself
-    doesn't carry one.
+    doesn't carry one. A value that does carry an offset keeps it: replacing
+    it would move the instant.
     """
     if raw is None:
         return None
-    return datetime.fromisoformat(raw).replace(tzinfo=UTC)
+    parsed = datetime.fromisoformat(raw)
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
 
 class TrobarApiClient:
@@ -183,6 +187,19 @@ class TrobarApiClient:
         from the shape of a real response.
         """
         _, body = await self._request_json("GET", MIRRORS_PATH)
+        return body
+
+    async def async_get_playlist_sources(self) -> dict[str, Any]:
+        """Fetch the health of the places playlist syncs read from (in
+        the first server release after 2.17.0).
+
+        Instance-wide, like mirrors. `sources_total`, `sources_failing`
+        and `sources_alerting` are exact; `alerting` is capped, with
+        `alerting_truncated` saying so. A source alerts after 3 failed
+        runs in a row spanning at least 12 hours, and leaves `alerting`
+        on its first successful run.
+        """
+        _, body = await self._request_json("GET", PLAYLIST_SOURCES_PATH)
         return body
 
     async def async_trigger_scan(self, *, force: bool = False) -> bool:

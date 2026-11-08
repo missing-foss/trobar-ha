@@ -9,6 +9,7 @@ import copy
 from homeassistant.const import CONF_API_TOKEN, CONF_URL, EntityCategory
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.trobar.const import DOMAIN
@@ -16,6 +17,7 @@ from custom_components.trobar.const import DOMAIN
 DEVICES_URL = "http://trobar.local/api/integrations/devices"
 SERVER_URL = "http://trobar.local/api/integrations/server"
 MIRRORS_URL = "http://trobar.local/api/integrations/mirrors"
+PLAYLIST_SOURCES_URL = "http://trobar.local/api/integrations/playlist-sources"
 
 # trobar-ha#25: __init__.py's first refresh now fetches both endpoints,
 # so every test that sets up a full config entry needs this mocked too --
@@ -44,6 +46,16 @@ SAMPLE_MIRRORS = {
     "failing_truncated": False,
 }
 
+# The healthy playlist-sources shape, the default for the same reason as
+# SAMPLE_MIRRORS; tests/test_playlist_sources.py overrides it.
+SAMPLE_PLAYLIST_SOURCES = {
+    "sources_total": 3,
+    "sources_failing": 0,
+    "sources_alerting": 0,
+    "alerting": [],
+    "alerting_truncated": False,
+}
+
 # A regular phone: fully populated, nothing null.
 PHONE_DEVICE = {
     "id": 1,
@@ -57,6 +69,12 @@ PHONE_DEVICE = {
     "reported_free_bytes": 300000000000,
     "reported_total_bytes": 512000000000,
     "free_bytes_reported_at": "2026-07-28 21:00:00",
+    # Music in the sync folder that Trobar did not put there. It counts
+    # against max_size_bytes, which is a limit on the FOLDER rather than on
+    # Trobar's own share of it -- so this phone is 40 GB into its 150 GB
+    # before Trobar has synced anything.
+    "reported_foreign_bytes": 40000000000,
+    "foreign_bytes_reported_at": "2026-07-28 21:00:00",
     "last_seen_at": "2026-07-28 21:00:00",
     "created_at": "2026-01-01 00:00:00",
     "source_of_truth": "device",
@@ -68,7 +86,10 @@ PHONE_DEVICE = {
 }
 
 # A delegated (not owned) watch: never synced, and permanently no storage
-# data at all -- the trobar-ha#2 case that must NOT read as a bug.
+# data at all -- the case that must NOT read as a bug. The Garmin client
+# only ever calls changes/file/ack, so it never reports storage and never
+# uploads a manifest; every storage field here is null BY DESIGN and stays
+# null forever, rather than being data that has not arrived yet.
 WATCH_DEVICE = {
     "id": 5,
     "name": "Test Watch",
@@ -81,6 +102,12 @@ WATCH_DEVICE = {
     "reported_free_bytes": None,
     "reported_total_bytes": None,
     "free_bytes_reported_at": None,
+    # None, not 0: never measured is a different claim from measured empty,
+    # and this device will never measure. Substituting zero here would make
+    # the fixture assert that a watch reports an empty folder, which is the
+    # exact misreading the server keeps these two apart to prevent.
+    "reported_foreign_bytes": None,
+    "foreign_bytes_reported_at": None,
     "last_seen_at": "2026-07-28 21:00:00",
     "created_at": "2026-01-01 00:00:00",
     "source_of_truth": "server",
@@ -99,6 +126,8 @@ async def _setup_entry(
     server_status=SAMPLE_SERVER_STATUS,
     mirrors=SAMPLE_MIRRORS,
     mirrors_status=None,
+    playlist_sources=SAMPLE_PLAYLIST_SOURCES,
+    playlist_sources_status=None,
 ) -> MockConfigEntry:
     aioclient_mock.get(DEVICES_URL, json=copy.deepcopy(devices))
     aioclient_mock.get(SERVER_URL, json=copy.deepcopy(server_status))
@@ -108,6 +137,10 @@ async def _setup_entry(
         aioclient_mock.get(MIRRORS_URL, status=mirrors_status)
     else:
         aioclient_mock.get(MIRRORS_URL, json=copy.deepcopy(mirrors))
+    if playlist_sources_status is not None:
+        aioclient_mock.get(PLAYLIST_SOURCES_URL, status=playlist_sources_status)
+    else:
+        aioclient_mock.get(PLAYLIST_SOURCES_URL, json=copy.deepcopy(playlist_sources))
     entry = MockConfigEntry(
         domain=DOMAIN,
         unique_id="http://trobar.local",
@@ -119,14 +152,40 @@ async def _setup_entry(
     return entry
 
 
+def _uid(hass, key: str) -> str:
+    """`key` scoped by the one Trobar config entry these tests set up, as
+    the integration scopes every unique id (const.entity_unique_id)."""
+    (entry,) = hass.config_entries.async_entries(DOMAIN)
+    return f"{entry.entry_id}_{key}"
+
+
+def _registry_device(hass, identifier: tuple[str, str]):
+    """The registered device with `identifier`, without the lookup newer
+    cores deprecate (identifiers are no longer unique across entries)."""
+    registry = dr.async_get(hass)
+    if hasattr(registry, "async_get_devices"):
+        found = registry.async_get_devices(identifiers={identifier})
+        assert len(found) <= 1, found
+        return found[0] if found else None
+    return registry.async_get_device(identifiers={identifier})
+
+
+def _device_identifier(hass, device_id: int) -> tuple[str, str]:
+    """A Trobar device's identifier within the one config entry."""
+    (entry,) = hass.config_entries.async_entries(DOMAIN)
+    return (DOMAIN, f"{entry.entry_id}_{device_id}")
+
+
 def _entity_id(hass, device_id: int, key: str) -> str | None:
     registry = er.async_get(hass)
-    return registry.async_get_entity_id("sensor", DOMAIN, f"{device_id}_{key}")
+    return registry.async_get_entity_id(
+        "sensor", DOMAIN, _uid(hass, f"{device_id}_{key}")
+    )
 
 
 def _server_entity_id(hass, key: str) -> str | None:
     registry = er.async_get(hass)
-    return registry.async_get_entity_id("sensor", DOMAIN, f"server_{key}")
+    return registry.async_get_entity_id("sensor", DOMAIN, _uid(hass, f"server_{key}"))
 
 
 async def test_populated_device_sensor_values(hass, aioclient_mock):
@@ -157,9 +216,9 @@ async def test_unknown_track_count_null_is_not_zero(hass, aioclient_mock):
 
 
 async def test_watch_storage_sensors_are_unavailable_not_unknown(hass, aioclient_mock):
-    """A device that structurally never reports storage (trobar-ha#2's
-    watch case) must read UNAVAILABLE, not get stuck at "unknown" with no
-    explanation."""
+    """A device that structurally never reports storage -- the Garmin watch,
+    which only ever calls changes/file/ack -- must read UNAVAILABLE, not get
+    stuck at "unknown" with no explanation."""
     await _setup_entry(hass, aioclient_mock, [WATCH_DEVICE])
 
     assert hass.states.get(_entity_id(hass, 5, "free_space")).state == "unavailable"
@@ -182,11 +241,8 @@ async def test_device_name_is_never_owner_suffixed(hass, aioclient_mock):
     exactly as Trobar reports them regardless of ownership."""
     await _setup_entry(hass, aioclient_mock, [PHONE_DEVICE, WATCH_DEVICE])
 
-    device_registry = dr.async_get(hass)
-    assert device_registry.async_get_device(
-        identifiers={(DOMAIN, "1")}).name == "Test Phone"
-    assert device_registry.async_get_device(
-        identifiers={(DOMAIN, "5")}).name == "Test Watch"
+    assert _registry_device(hass, _device_identifier(hass, 1)).name == "Test Phone"
+    assert _registry_device(hass, _device_identifier(hass, 5)).name == "Test Watch"
 
 
 async def test_owner_sensor_reports_username_for_multiple_owners(hass, aioclient_mock):
@@ -231,23 +287,82 @@ async def test_owner_sensor_follows_transfer_on_next_refresh(hass, aioclient_moc
 
 
 async def test_device_removed_from_response_is_removed_from_registry(
-    hass, aioclient_mock
+    hass, aioclient_mock, caplog
 ):
     """A device that vanishes from a successful poll (deleted, or
     transferred away -- trobar-server#442) is removed outright, not left
-    behind reading unavailable forever."""
+    behind reading unavailable forever. It's looked up without the
+    registry call newer cores deprecate, which they report in the log."""
     entry = await _setup_entry(hass, aioclient_mock, [PHONE_DEVICE, WATCH_DEVICE])
 
-    device_registry = dr.async_get(hass)
-    assert device_registry.async_get_device(identifiers={(DOMAIN, "5")}) is not None
+    assert _registry_device(hass, _device_identifier(hass, 5)) is not None
 
     aioclient_mock.clear_requests()
     aioclient_mock.get(DEVICES_URL, json=[PHONE_DEVICE])
     await entry.runtime_data.devices.async_refresh()
     await hass.async_block_till_done()
 
-    assert device_registry.async_get_device(identifiers={(DOMAIN, "5")}) is None
+    assert _registry_device(hass, _device_identifier(hass, 5)) is None
     assert _entity_id(hass, 5, "pending_tracks") is None
+    assert "Detected that custom integration 'trobar' calls" not in caplog.text
+
+
+async def _remove_by_hand(hass, ws_client, entry, device_entry) -> bool:
+    """What the device page's Delete button does."""
+    await ws_client.send_json_auto_id(
+        {
+            "type": "config/device_registry/remove_config_entry",
+            "config_entry_id": entry.entry_id,
+            "device_id": device_entry.id,
+        }
+    )
+    response = await ws_client.receive_json()
+    return response["success"]
+
+
+async def test_a_listed_device_cannot_be_removed_by_hand(
+    hass, aioclient_mock, hass_ws_client
+):
+    """A device the server still lists stays: removing it by hand would
+    only bring it back on the next poll, minus its customisations."""
+    assert await async_setup_component(hass, "config", {})
+    entry = await _setup_entry(hass, aioclient_mock, [PHONE_DEVICE, WATCH_DEVICE])
+    device_registry = dr.async_get(hass)
+    device = _registry_device(hass, _device_identifier(hass, 5))
+
+    assert not await _remove_by_hand(hass, await hass_ws_client(hass), entry, device)
+    assert device_registry.async_get(device.id) is not None
+
+
+async def test_the_server_device_cannot_be_removed_by_hand(
+    hass, aioclient_mock, hass_ws_client
+):
+    """The server device belongs to the config entry, not the device list."""
+    assert await async_setup_component(hass, "config", {})
+    entry = await _setup_entry(hass, aioclient_mock, [PHONE_DEVICE])
+    device_registry = dr.async_get(hass)
+    device = _registry_device(hass, (DOMAIN, entry.entry_id))
+    assert device is not None
+
+    assert not await _remove_by_hand(hass, await hass_ws_client(hass), entry, device)
+    assert device_registry.async_get(device.id) is not None
+
+
+async def test_a_leftover_device_can_be_removed_by_hand(
+    hass, aioclient_mock, hass_ws_client
+):
+    """A device of this entry that the server no longer lists, which the
+    automatic removal didn't catch, can be deleted from its device page."""
+    assert await async_setup_component(hass, "config", {})
+    entry = await _setup_entry(hass, aioclient_mock, [PHONE_DEVICE])
+    device_registry = dr.async_get(hass)
+    leftover = device_registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={_device_identifier(hass, 5)},
+    )
+
+    assert await _remove_by_hand(hass, await hass_ws_client(hass), entry, leftover)
+    assert device_registry.async_get(leftover.id) is None
 
 
 async def test_device_added_in_later_refresh_gets_entities(hass, aioclient_mock):
@@ -341,12 +456,16 @@ async def test_server_sensors_share_one_device_with_the_binary_sensors_and_butto
     }
     device_ids.add(
         registry.async_get(
-            registry.async_get_entity_id("binary_sensor", DOMAIN, "server_reachable")
+            registry.async_get_entity_id(
+                "binary_sensor", DOMAIN, _uid(hass, "server_reachable")
+            )
         ).device_id
     )
     device_ids.add(
         registry.async_get(
-            registry.async_get_entity_id("button", DOMAIN, "server_scan_library")
+            registry.async_get_entity_id(
+                "button", DOMAIN, _uid(hass, "server_scan_library")
+            )
         ).device_id
     )
     assert len(device_ids) == 1

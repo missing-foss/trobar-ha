@@ -1,0 +1,139 @@
+# SPDX-FileCopyrightText: 2026 missing-foss
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# WHERE THIS RUNS: the published mirror, under GitHub Actions only. The
+# development environment's CI reads its own workflow directory and, once
+# that directory exists, takes nothing from `.github/`; so this file never
+# runs there, and its absence from those runs is correct.
+
+# Release: fires on a bare vX.Y.Z tag.
+#
+# RE-RUNS: dispatch this workflow FROM THE TAG (pick the tag, not a branch,
+# as the ref in the dispatch dialog). There is no "tag" input on purpose: a
+# dispatch runs every job on the ref it was dispatched from, so the checkout,
+# the called gates and GITHUB_REF_NAME all agree.
+#
+# WHY A RELEASE AT ALL: per HACS's publishing docs, with published releases
+# HACS shows the latest release's tag as the version and offers the five
+# latest releases to install; with none, it uses the default branch and shows
+# the first seven characters of the last commit. A tag alone is not enough.
+#
+# NOTHING IS BUILT OR UPLOADED. What this does is prove the tag is honest, run
+# every gate a pull request runs, and open a DRAFT release for a human to
+# finish and publish. The draft is the handoff point: nothing is public until
+# a human publishes it.
+#
+# Modelled on the server's release workflow. The version of record here is
+# manifest.json's "version", which is what Home Assistant reports for the
+# installed integration.
+name: release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Runs BEFORE the gates. A tag that disagrees with the manifest is wrong no
+  # matter how green the tests are, and finding that out first is cheaper.
+  version-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Tag must match manifest.json's version
+        # The ref reaches the script through the environment, never
+        # interpolated into its text; the draft job treats the tag the same way.
+        env:
+          REF: ${{ github.ref_name }}
+        run: |
+          # A dispatch from a branch named like a version would otherwise pass,
+          # and the draft would then carry a tag GitHub creates on publish, on
+          # the default branch's head rather than on the commit checked here.
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            echo "::error::'$REF' is a $GITHUB_REF_TYPE, not a tag -- dispatch this from the tag"
+            exit 1
+          fi
+          ref="$REF"
+          case "$ref" in
+            v*) ;;
+            *) echo "::error::tag '$ref' does not start with 'v' -- releases are tagged vX.Y.Z"; exit 1 ;;
+          esac
+          tag_version="${ref#v}"
+          manifest_version="$(python3 -c 'import json; print(json.load(open("custom_components/trobar/manifest.json"))["version"])')"
+          echo "tag=$tag_version  manifest.json=$manifest_version"
+          if [ "$tag_version" != "$manifest_version" ]; then
+            echo "::error::tag $ref implies version $tag_version but manifest.json says $manifest_version -- bump the manifest or retag"
+            exit 1
+          fi
+      - name: CHANGELOG.md has a section for this version
+        # A release says what changed. The section is "## [X.Y.Z]", a date
+        # after it optional, with at least one "- " entry before the next
+        # "## ", so an empty heading doesn't pass.
+        env:
+          REF: ${{ github.ref_name }}
+        run: |
+          version="${REF#v}"
+          if awk -v h="## [$version]" '
+              index($0, h) == 1 && (length($0) == length(h) || substr($0, length(h) + 1, 1) == " ") { inside = 1; next }
+              /^## / { inside = 0 }
+              inside && /^- / { found = 1 }
+              END { exit !found }' CHANGELOG.md; then
+            echo "CHANGELOG.md has entries for $version"
+          else
+            echo "::error::CHANGELOG.md has no '## [$version]' section with an entry -- add one before tagging"
+            exit 1
+          fi
+
+  # The same gates a pull request runs, hassfest and the HACS validator
+  # included: called, not copied, so they cannot drift from what merges see.
+  gates:
+    needs: [version-check]
+    uses: ./.github/workflows/ci.yml
+
+  draft-release:
+    needs: [version-check, gates]
+    runs-on: ubuntu-latest
+    # Only this job needs write, and only to create the draft.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0 # the previous tag, for the notes' starting point
+      - name: Create the draft release, or leave an existing one alone
+        # `gh` in a run: step rather than a third-party release action: the
+        # organisation's Actions policy allows GitHub-owned and
+        # verified-creator actions only.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          SUPPORT_LINE: "If Trobar is useful to you, you can support its development on Ko-fi: https://ko-fi.com/missingfoss"
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $TAG already exists -- leaving it alone"
+          else
+            previous="$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || echo '')"
+            if [ -n "$previous" ]; then
+              gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" --draft --generate-notes --notes-start-tag "$previous"
+            else
+              gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" --draft --generate-notes
+            fi
+            # The support line goes after the generated notes. Only a draft
+            # this run just created gets it, so a re-run never adds it twice.
+            notes="$RUNNER_TEMP/release-notes.md"
+            gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body > "$notes"
+            printf '\n\n%s\n' "$SUPPORT_LINE" >> "$notes"
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file "$notes"
+          fi
+          cat >> "$GITHUB_STEP_SUMMARY" <<SUMMARY
+          ### $TAG -- draft release created
+
+          Tag matches manifest.json's version, and every gate passed.
+
+          Nothing is published by this workflow: the draft is the handoff
+          point, finished and published by a human as part of the release
+          process.
+          SUMMARY

@@ -36,12 +36,14 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import TrobarConfigEntry
 from .api import parse_server_timestamp
-from .const import DOMAIN, server_device_identifier
+from .const import entity_unique_id, trobar_device_identifier
 from .coordinator import (
     TrobarDataUpdateCoordinator,
     TrobarMirrorsDataUpdateCoordinator,
+    TrobarPlaylistSourcesDataUpdateCoordinator,
     TrobarServerDataUpdateCoordinator,
 )
+from .device_info import find_entry_device, server_device_info, trobar_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -202,19 +204,17 @@ class TrobarMirrorsFailingSensor(
 
     _attr_has_entity_name = True
     _attr_translation_key = "server_mirrors_failing"
-    _attr_unique_id = "server_mirrors_failing"
     _attr_state_class = SensorStateClass.MEASUREMENT
 
     def __init__(self, coordinator: TrobarMirrorsDataUpdateCoordinator) -> None:
         super().__init__(coordinator)
+        self._attr_unique_id = entity_unique_id(
+            coordinator.config_entry.entry_id, "server_mirrors_failing"
+        )
 
     @property
     def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={server_device_identifier(self.coordinator.config_entry.entry_id)},
-            name="Trobar Server",
-            manufacturer="Trobar",
-        )
+        return server_device_info(self.coordinator.config_entry)
 
     @property
     def native_value(self) -> int | None:
@@ -227,10 +227,67 @@ class TrobarMirrorsFailingSensor(
         if self.coordinator.data is None:
             return None
         data = self.coordinator.data
-        return {
+        attrs = {
             "by_sink": data["by_sink"],
             "failing": data["failing"],
             "failing_truncated": data["failing_truncated"],
+        }
+        # Coverage: playlist x sink pairs whose last write left tracks off
+        # the target. Not an alarm: a partial copy is the normal state of a
+        # target with a different library, so it stays out of the state and
+        # out of the problem binary sensor. A server from before coverage
+        # sends none of these keys, and its attributes stay as they were.
+        if "mirrors_short" in data:
+            attrs["mirrors_short"] = data["mirrors_short"]
+            attrs["coverage"] = data.get("short", [])
+            attrs["coverage_truncated"] = data.get("short_truncated", False)
+        return attrs
+
+
+class TrobarPlaylistSourcesFailingSensor(
+    CoordinatorEntity[TrobarPlaylistSourcesDataUpdateCoordinator], SensorEntity
+):
+    """How many playlist sources keep failing, by the server's alert rule
+    (3 failed runs in a row, spanning at least 12 hours).
+
+    State is `sources_alerting` verbatim, never a count of `alerting`,
+    which is capped. The worklist goes in attributes with its truncation
+    flag, as the mirrors sensor's does, and so does `sources_failing`:
+    sources that failed their last run(s) but don't alert yet, for anyone
+    who wants an earlier warning. Each entry's `reason` is the server's
+    raw code, passed through as mirrors' `error_code` is.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "server_playlist_sources_failing"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, coordinator: TrobarPlaylistSourcesDataUpdateCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = entity_unique_id(
+            coordinator.config_entry.entry_id, "server_playlist_sources_failing"
+        )
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return server_device_info(self.coordinator.config_entry)
+
+    @property
+    def native_value(self) -> int | None:
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.data["sources_alerting"]
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        if self.coordinator.data is None:
+            return None
+        data = self.coordinator.data
+        return {
+            "alerting": data["alerting"],
+            "alerting_truncated": data["alerting_truncated"],
+            "sources_failing": data["sources_failing"],
+            "sources_total": data["sources_total"],
         }
 
 
@@ -249,15 +306,14 @@ class TrobarServerSensor(
     ) -> None:
         super().__init__(coordinator)
         self.entity_description = description
-        self._attr_unique_id = f"server_{description.key}"
+        self._attr_unique_id = entity_unique_id(
+            coordinator.config_entry.entry_id, f"server_{description.key}"
+        )
 
     @property
     def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={server_device_identifier(self.coordinator.config_entry.entry_id)},
-            name="Trobar Server",
-            manufacturer="Trobar",
-            sw_version=(self.coordinator.data or {}).get("version"),
+        return server_device_info(
+            self.coordinator.config_entry, (self.coordinator.data or {}).get("version")
         )
 
     @property
@@ -286,18 +342,28 @@ async def async_setup_entry(
 
     The four server sensors (trobar-ha#25) are simpler: exactly one
     "server" device exists for the lifetime of the config entry, so
-    they're added once, unconditionally, with no add/remove tracking.
+    they're added once, with no add/remove tracking -- or not at all on a
+    server too old to have the server route.
     """
-    async_add_entities(
-        TrobarServerSensor(entry.runtime_data.server, description)
-        for description in SERVER_SENSOR_DESCRIPTIONS
-    )
+    # None on a server older than 2.9.0 -- see TrobarRuntimeData.
+    server = entry.runtime_data.server
+    if server is not None:
+        async_add_entities(
+            TrobarServerSensor(server, description)
+            for description in SERVER_SENSOR_DESCRIPTIONS
+        )
 
     # None on a server older than 2.12.0 -- see TrobarRuntimeData. Adding
     # nothing is the point: an entity that can only ever read unavailable
     # is worse than an absent one, because it looks like a fault.
     if entry.runtime_data.mirrors is not None:
         async_add_entities([TrobarMirrorsFailingSensor(entry.runtime_data.mirrors)])
+
+    # None on a server without playlist-source health -- see TrobarRuntimeData.
+    if entry.runtime_data.playlist_sources is not None:
+        async_add_entities(
+            [TrobarPlaylistSourcesFailingSensor(entry.runtime_data.playlist_sources)]
+        )
 
     coordinator = entry.runtime_data.devices
     known_device_ids: set[int] = set()
@@ -317,8 +383,10 @@ async def async_setup_entry(
         if removed_ids:
             device_registry = dr.async_get(hass)
             for device_id in removed_ids:
-                device_entry = device_registry.async_get_device(
-                    identifiers={(DOMAIN, str(device_id))}
+                device_entry = find_entry_device(
+                    device_registry,
+                    trobar_device_identifier(entry.entry_id, device_id),
+                    entry.entry_id,
                 )
                 if device_entry is not None:
                     device_registry.async_remove_device(device_entry.id)
@@ -345,7 +413,9 @@ class TrobarSensor(CoordinatorEntity[TrobarDataUpdateCoordinator], SensorEntity)
         super().__init__(coordinator)
         self.entity_description = description
         self._device_id = device_id
-        self._attr_unique_id = f"{device_id}_{description.key}"
+        self._attr_unique_id = entity_unique_id(
+            coordinator.config_entry.entry_id, f"{device_id}_{description.key}"
+        )
 
     @property
     def _device(self) -> dict[str, Any] | None:
@@ -359,12 +429,7 @@ class TrobarSensor(CoordinatorEntity[TrobarDataUpdateCoordinator], SensorEntity)
         device = self._device
         if device is None:
             return None
-        return DeviceInfo(
-            identifiers={(DOMAIN, str(self._device_id))},
-            name=device["name"],
-            manufacturer="Trobar",
-            model=device["device_type"],
-        )
+        return trobar_device_info(self.coordinator.config_entry, device)
 
     @property
     def available(self) -> bool:
