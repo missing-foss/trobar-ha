@@ -40,6 +40,7 @@ from .const import entity_unique_id, trobar_device_identifier
 from .coordinator import (
     TrobarDataUpdateCoordinator,
     TrobarMirrorsDataUpdateCoordinator,
+    TrobarPlaylistsDataUpdateCoordinator,
     TrobarPlaylistSourcesDataUpdateCoordinator,
     TrobarServerDataUpdateCoordinator,
 )
@@ -205,6 +206,11 @@ class TrobarMirrorsFailingSensor(
     _attr_has_entity_name = True
     _attr_translation_key = "server_mirrors_failing"
     _attr_state_class = SensorStateClass.MEASUREMENT
+    # The two worklists are for cards and templates, not history: full, at
+    # 50 entries each with their titles, they pass the recorder's 16 KiB
+    # limit for attributes, which then drops them all with a warning. The
+    # state and the counts beside them are still recorded.
+    _unrecorded_attributes = frozenset({"failing", "coverage"})
 
     def __init__(self, coordinator: TrobarMirrorsDataUpdateCoordinator) -> None:
         super().__init__(coordinator)
@@ -291,6 +297,134 @@ class TrobarPlaylistSourcesFailingSensor(
         }
 
 
+PLAYLISTS_SERVER_SENSOR_DESCRIPTIONS: tuple[
+    TrobarServerSensorEntityDescription, ...
+] = (
+    TrobarServerSensorEntityDescription(
+        key="playlists_total",
+        translation_key="server_playlists_total",
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda data: data["playlists_total"],
+    ),
+    TrobarServerSensorEntityDescription(
+        key="playlists_with_gaps",
+        translation_key="server_playlists_with_gaps",
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda data: data["playlists_with_gaps"],
+    ),
+)
+
+
+class TrobarPlaylistsServerSensor(
+    CoordinatorEntity[TrobarPlaylistsDataUpdateCoordinator], SensorEntity
+):
+    """A server-wide playlist count (trobar-ha#19), on the server device but
+    read from the playlists coordinator, so a server without the route
+    simply has neither sensor."""
+
+    entity_description: TrobarServerSensorEntityDescription
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: TrobarPlaylistsDataUpdateCoordinator,
+        description: TrobarServerSensorEntityDescription,
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._attr_unique_id = entity_unique_id(
+            coordinator.config_entry.entry_id, f"server_{description.key}"
+        )
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return server_device_info(self.coordinator.config_entry)
+
+    @property
+    def native_value(self) -> Any:
+        if self.coordinator.data is None:
+            return None
+        return self.entity_description.value_fn(self.coordinator.data)
+
+
+class TrobarDevicePlaylistsSensor(
+    CoordinatorEntity[TrobarPlaylistsDataUpdateCoordinator], SensorEntity
+):
+    """How many playlists one device has (trobar-ha#19), with each
+    playlist's completeness in attributes.
+
+    Which devices get one is decided by the devices coordinator, as for
+    every other per-device sensor, so a device removed there loses this
+    sensor with the rest of its entities. The value comes from the
+    playlists coordinator; a device that coordinator does not list (yet)
+    reads unavailable rather than zero, since zero would be a claim.
+
+    State is `playlists_count`, never a count of `playlists`, which the
+    server caps at 100. The list goes in attributes as the server sends
+    it, with its truncation flag, and is kept out of the recorder.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "playlists"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    # The list is for cards and templates, not history: at up to 100
+    # entries with their titles it can pass the recorder's 16 KiB limit
+    # for attributes, which then drops them all with a warning. The count
+    # (the state) and the truncation flag are still recorded.
+    _unrecorded_attributes = frozenset({"playlists"})
+
+    def __init__(
+        self,
+        coordinator: TrobarPlaylistsDataUpdateCoordinator,
+        devices: TrobarDataUpdateCoordinator,
+        device_id: int,
+    ) -> None:
+        super().__init__(coordinator)
+        self._devices = devices
+        self._device_id = device_id
+        self._attr_unique_id = entity_unique_id(
+            coordinator.config_entry.entry_id, f"{device_id}_playlists"
+        )
+
+    @property
+    def _entry(self) -> dict[str, Any] | None:
+        data = self.coordinator.data
+        if data is None:
+            return None
+        for device in data["devices"]:
+            if device["device_id"] == self._device_id:
+                return device
+        return None
+
+    @property
+    def device_info(self) -> DeviceInfo | None:
+        device = (self._devices.data or {}).get(self._device_id)
+        if device is None:
+            return None
+        return trobar_device_info(self.coordinator.config_entry, device)
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.last_update_success and self._entry is not None
+
+    @property
+    def native_value(self) -> int | None:
+        entry = self._entry
+        if entry is None:
+            return None
+        return entry["playlists_count"]
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        entry = self._entry
+        if entry is None:
+            return None
+        return {
+            "playlists": entry["playlists"],
+            "playlists_truncated": entry["playlists_truncated"],
+        }
+
+
 class TrobarServerSensor(
     CoordinatorEntity[TrobarServerDataUpdateCoordinator], SensorEntity
 ):
@@ -365,6 +499,14 @@ async def async_setup_entry(
             [TrobarPlaylistSourcesFailingSensor(entry.runtime_data.playlist_sources)]
         )
 
+    # None on a server without the playlists route -- see TrobarRuntimeData.
+    playlists = entry.runtime_data.playlists
+    if playlists is not None:
+        async_add_entities(
+            TrobarPlaylistsServerSensor(playlists, description)
+            for description in PLAYLISTS_SERVER_SENSOR_DESCRIPTIONS
+        )
+
     coordinator = entry.runtime_data.devices
     known_device_ids: set[int] = set()
 
@@ -379,6 +521,11 @@ async def async_setup_entry(
                 for device_id in new_ids
                 for description in SENSOR_DESCRIPTIONS
             )
+            if playlists is not None:
+                async_add_entities(
+                    TrobarDevicePlaylistsSensor(playlists, coordinator, device_id)
+                    for device_id in new_ids
+                )
 
         if removed_ids:
             device_registry = dr.async_get(hass)

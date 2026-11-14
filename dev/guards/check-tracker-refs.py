@@ -23,6 +23,14 @@ then it protects nothing. So:
     of a link is not a tracker ref
   - HTML comments are skipped
   - a bare # followed by 1-4 digits, as a word, IS a tracker ref
+
+HTML pages are prose too, but only the part a reader sees: the visible text,
+and the string literals of inline scripts, which is where pages that switch
+language keep their words. Markup is not prose -- an attribute holds colours
+(fill="#000") and fragment links -- so tags, attribute values, <style>, the
+code and comments of scripts, HTML and template comments, and numeric
+character references are all left out before matching. Comments and code in
+a page are source, and get the source rule below like any other file.
 """
 import pathlib
 import re
@@ -58,7 +66,19 @@ POINTER = re.compile(
     r"(?<!/)\b(?:see|per|refs?|closes?|fixes?)\s+(?:[\w.-]+)?#\d{1,4}\b", re.I)
 
 SOURCE_EXT = {".dart", ".kt", ".kts", ".java", ".py", ".sh", ".yml", ".yaml",
-              ".gradle", ".mc", ".xml", ".toml", ".jsx"}
+              ".gradle", ".mc", ".xml", ".toml", ".jsx", ".js", ".mjs", ".css",
+              ".html"}
+
+# --- HTML prose ------------------------------------------------------------
+# Each pattern below is blanked out of a page before the prose rule runs, with
+# its newlines kept so a reported line is the line in the file.
+HTML_STYLE = re.compile(r"<style\b.*?</style\s*>", re.S | re.I)
+HTML_SCRIPT = re.compile(r"(<script\b[^>]*>)(.*?)(</script\s*>)", re.S | re.I)
+HTML_TAG = re.compile(r"<[^>]*>", re.S)
+# Template comments ({# ... #}) are source comments, not rendered text.
+TEMPLATE_COMMENT = re.compile(r"\{#.*?#\}", re.S)
+# &#160; is a character, not a citation.
+CHAR_REF = re.compile(r"&#\d+;")
 
 # Generated or vendored trees this repository does not author. A dependency
 # whose own source cites its own tracker is not this project's prose, and
@@ -131,7 +151,78 @@ def scan_source(root="."):
     return hits
 
 
+def _blank(text):
+    """The same text with every character but newlines turned into spaces."""
+    return re.sub(r"[^\n]", " ", text)
+
+
+def _script_strings(code):
+    """Keep only the contents of a script's string literals, in place.
+
+    A small scanner rather than a regex: a quote inside a comment, or a
+    comment marker inside a string, is exactly what a regex gets wrong. Code
+    and comments become spaces; newlines are kept everywhere.
+    """
+    out, i, n = [], 0, len(code)
+    while i < n:
+        c = code[i]
+        if code.startswith("//", i):
+            j = code.find("\n", i)
+            j = n if j < 0 else j
+            out.append(_blank(code[i:j]))
+            i = j
+        elif code.startswith("/*", i):
+            j = code.find("*/", i + 2)
+            j = n if j < 0 else j + 2
+            out.append(_blank(code[i:j]))
+            i = j
+        elif c in "\"'`":
+            j, body = i + 1, []
+            while j < n and code[j] != c:
+                if code[j] == "\\" and j + 1 < n:
+                    body.append(code[j:j + 2])
+                    j += 2
+                    continue
+                if code[j] == "\n" and c != "`":
+                    break
+                body.append(code[j])
+                j += 1
+            out.append(" " + "".join(body) + (" " if j < n and code[j] == c else ""))
+            i = j + 1 if j < n and code[j] == c else j
+        else:
+            out.append(c if c == "\n" else " ")
+            i += 1
+    return "".join(out)
+
+
+def html_prose(text):
+    """What a reader of the page sees, at the same line numbers."""
+    text = HTML_COMMENT.sub(lambda m: _blank(m.group(0)), text)
+    text = TEMPLATE_COMMENT.sub(lambda m: _blank(m.group(0)), text)
+    text = HTML_STYLE.sub(lambda m: _blank(m.group(0)), text)
+    text = HTML_SCRIPT.sub(lambda m: _blank(m.group(1)) + _script_strings(m.group(2))
+                           + _blank(m.group(3)), text)
+    text = HTML_TAG.sub(lambda m: _blank(m.group(0)), text)
+    return CHAR_REF.sub(lambda m: _blank(m.group(0)), text)
+
+
+def scan_html(path):
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (UnicodeDecodeError, OSError):
+        return []
+    original = text.splitlines()
+    hits = []
+    for n, line in enumerate(html_prose(text).splitlines(), 1):
+        for m in REF.finditer(line):
+            ctx = original[n - 1] if n <= len(original) else line
+            hits.append((n, m.group(0), ctx.strip()[:90]))
+    return hits
+
+
 def scan(path):
+    if path.suffix == ".html":
+        return scan_html(path)
     try:
         text = path.read_text(encoding="utf-8")
     except (UnicodeDecodeError, OSError):
@@ -174,17 +265,22 @@ def main():
             # otherwise walks into node_modules and a repo-root venv, and
             # reports a dependency's own README as this project's prose.
             files += sorted(
-                f for f in r.rglob("*.md")
+                f for pattern in ("*.md", "*.html") for f in r.rglob(pattern)
                 if not any(part in VENDORED_DIRS for part in f.parts)
             )
         elif r.is_file():
             files.append(r)
-    bad = 0
+    bad, seen = 0, set()
     for f in files:
         for n, ref, ctx in scan(f):
             print(f"{f}:{n}: tracker reference {ref} -- {ctx}")
+            seen.add((pathlib.Path(f).resolve(), n))
             bad += 1
     for f, n, ctx in scan_source():
+        # A citation in a page's visible text matches both the prose rule and
+        # the pointer rule. Report it once, as prose.
+        if (pathlib.Path(f).resolve(), n) in seen:
+            continue
         print(f"{f}:{n}: tracker pointer -- {ctx}")
         bad += 1
     if bad:
@@ -194,8 +290,9 @@ def main():
     # Say what was actually checked. The old message -- "no tracker references
     # in published prose" -- read as a clean bill of health for the whole tree,
     # which it never was and was never meant to be.
-    print("no tracker citations found: prose checked in full, source checked "
-          "for citation forms only")
+    print("no tracker citations found: prose (markdown, and the visible text "
+          "of HTML pages) checked in full, source checked for citation forms "
+          "only")
     print("(incidental mentions in source comments are deliberately allowed "
           "-- see scan_source)")
     return 0

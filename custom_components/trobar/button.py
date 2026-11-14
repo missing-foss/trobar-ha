@@ -4,7 +4,8 @@
 
 """Button platform for Trobar (trobar-ha#25, trobar-server#474).
 
-One button on the hub-level "server" device: trigger a library rescan.
+Buttons on the hub-level "server" device: trigger a library rescan, and
+(trobar-ha#19) sync playlists now.
 This is the action trobar-server#474 was filed to decide whether an
 integration credential should ever be allowed to cause -- the answer was
 yes, scoped to exactly this.
@@ -22,7 +23,11 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from . import TrobarConfigEntry
 from .api import TrobarApiError
 from .const import entity_unique_id
-from .coordinator import TrobarServerDataUpdateCoordinator, translated_error
+from .coordinator import (
+    TrobarPlaylistsDataUpdateCoordinator,
+    TrobarServerDataUpdateCoordinator,
+    translated_error,
+)
 from .device_info import server_device_info
 
 _LOGGER = logging.getLogger(__name__)
@@ -34,6 +39,9 @@ async def async_setup_entry(
     # None on a server older than 2.9.0 -- see TrobarRuntimeData.
     if entry.runtime_data.server is not None:
         async_add_entities([TrobarScanButton(entry.runtime_data.server)])
+    # None on a server without the playlists route -- see TrobarRuntimeData.
+    if entry.runtime_data.playlists is not None:
+        async_add_entities([TrobarSyncPlaylistsButton(entry.runtime_data.playlists)])
 
 
 class TrobarScanButton(
@@ -85,4 +93,36 @@ class TrobarScanButton(
             raise translated_error(err) from err
         if not started:
             _LOGGER.debug("Trobar scan already running; press had nothing new to start")
+        await self.coordinator.async_request_refresh()
+
+
+class TrobarSyncPlaylistsButton(
+    CoordinatorEntity[TrobarPlaylistsDataUpdateCoordinator], ButtonEntity
+):
+    """Press to sync playlists now (trobar-ha#19), as the web UI's own
+    button does. On the playlists coordinator, so it exists only where the
+    server has the route and is unavailable when that poll fails. A 409
+    (a sync already running or scheduled) is not an error, as for the
+    scan button."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "sync_playlists"
+
+    def __init__(self, coordinator: TrobarPlaylistsDataUpdateCoordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = entity_unique_id(
+            coordinator.config_entry.entry_id, "server_sync_playlists"
+        )
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return server_device_info(self.coordinator.config_entry)
+
+    async def async_press(self) -> None:
+        try:
+            started = await self.coordinator.client.async_trigger_playlist_sync()
+        except TrobarApiError as err:
+            raise translated_error(err) from err
+        if not started:
+            _LOGGER.debug("Trobar playlist sync already running; nothing new to start")
         await self.coordinator.async_request_refresh()

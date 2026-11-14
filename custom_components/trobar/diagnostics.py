@@ -24,8 +24,9 @@ from homeassistant.core import HomeAssistant
 
 from . import TrobarConfigEntry
 
-# Matched as keys at any depth: "title" is the entry's (its URL) and each
-# failing or short mirror's playlist; "name" is a device's; "account" is
+# Matched as keys at any depth: "title" is the entry's (its URL), each
+# failing or short mirror's playlist and each device playlist's; "name" is
+# a device's; "account" is
 # an alerting playlist source's member or public link.
 TO_REDACT = {
     CONF_API_TOKEN, CONF_URL, "unique_id", "title", "name", "owner_username", "account",
@@ -51,4 +52,5 @@ async def async_get_config_entry_diagnostics(
         "server": _coordinator(runtime.server),
         "mirrors": _coordinator(runtime.mirrors),
         "playlist_sources": _coordinator(runtime.playlist_sources),
+        "playlists": _coordinator(runtime.playlists),
     }, TO_REDACT)

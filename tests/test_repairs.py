@@ -15,6 +15,7 @@ from .test_sensor import (
     MIRRORS_URL,
     PHONE_DEVICE,
     PLAYLIST_SOURCES_URL,
+    PLAYLISTS_URL,
     SAMPLE_MIRRORS,
     SAMPLE_SERVER_STATUS,
     SERVER_URL,
@@ -40,6 +41,7 @@ async def test_each_missing_route_is_a_warning_naming_its_version(hass, aioclien
     aioclient_mock.get(SERVER_URL, status=404)
     aioclient_mock.get(MIRRORS_URL, status=404)
     aioclient_mock.get(PLAYLIST_SOURCES_URL, status=404)
+    aioclient_mock.get(PLAYLISTS_URL, status=404)
     entry = await _setup_entry(hass, aioclient_mock, [PHONE_DEVICE])
 
     server, mirrors = _issue(hass, "server", entry), _issue(hass, "mirrors", entry)
@@ -95,6 +97,7 @@ async def test_removing_the_server_removes_its_repairs(hass, aioclient_mock):
     aioclient_mock.get(SERVER_URL, status=404)
     aioclient_mock.get(MIRRORS_URL, status=404)
     aioclient_mock.get(PLAYLIST_SOURCES_URL, status=404)
+    aioclient_mock.get(PLAYLISTS_URL, status=404)
     entry = await _setup_entry(hass, aioclient_mock, [PHONE_DEVICE])
     assert _issue(hass, "server", entry) is not None
     assert _issue(hass, "playlist_sources", entry) is not None

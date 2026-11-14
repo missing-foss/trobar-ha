@@ -55,6 +55,16 @@ failing, and **"Failing playlist sources"**, how many, with the list as
 attributes. Both follow the server's rule — 3 failed syncs in a row, over at
 least 12 hours — so one bad night doesn't page anyone.
 
+Playlists have their own: **"Playlists"** and **"Playlists with gaps"** on
+the server device (gaps being entries not found in the library that nobody
+has excluded or accepted), and a **"Playlists"** sensor on each Trobar
+device, how many it has, with each one's title and how much of it is in the
+library as attributes (a device lists at most 100; the count is always
+exact). A private playlist is listed with its availability but no title,
+and `private: true`: the server never sends its name. A **"Sync playlists"** button, and the **`trobar.sync_playlists`**
+action, sync them now instead of at the server's next scheduled sync; the
+action answers whether it started one.
+
 Ships in English and French.
 
 A **"finished syncing" device trigger** is buildable from the automation
@@ -69,7 +79,7 @@ Not yet done: notifications and a listing in the Marketplace's default catalog �
 until the integration has seen some real use.
 
 The integration depends on Trobar's integration API and an admin-minted
-integration token, which covers both the reads and the rescan action.
+integration token, which covers both the reads and the two actions.
 Home Assistant is a headless client and can't hold a browser session the
 way Trobar's own web UI does, which is why a token is needed at all.
 
@@ -101,8 +111,8 @@ as a custom repository first. Download it, then restart Home Assistant.
 - A running [Trobar server](https://github.com/missing-foss/trobar-server),
   version **2.12.0 or later** for the full feature set: the mirror-health
   entities need 2.12.0, and the server device, reachability and the rescan
-  button need **2.9.0**. The playlist-source entities need the first server
-  release after 2.17.0. On an older server, **Settings → Repairs** says
+  button need **2.9.0**. The playlist-source and playlist entities need
+  **2.18.0**. On an older server, **Settings → Repairs** says
   which of them were skipped and why.
   **2.8.1** is the floor if you only want the per-device sensors (2.8.0
   shipped the read-only integration API; 2.8.1 fixed a

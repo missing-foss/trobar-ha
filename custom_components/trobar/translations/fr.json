@@ -78,6 +78,15 @@
       },
       "server_playlist_sources_failing": {
         "name": "Sources de playlists en échec"
+      },
+      "playlists": {
+        "name": "Playlists"
+      },
+      "server_playlists_total": {
+        "name": "Playlists"
+      },
+      "server_playlists_with_gaps": {
+        "name": "Playlists incomplètes"
       }
     },
     "binary_sensor": {
@@ -97,6 +106,9 @@
     "button": {
       "scan_library": {
         "name": "Analyser la bibliothèque"
+      },
+      "sync_playlists": {
+        "name": "Synchroniser les playlists"
       }
     }
   },
@@ -130,6 +142,16 @@
           "description": "Relire tous les fichiers, pas seulement ceux modifiés depuis la dernière analyse."
         }
       }
+    },
+    "sync_playlists": {
+      "name": "Synchroniser les playlists",
+      "description": "Demande à un serveur Trobar de synchroniser ses playlists maintenant. Une synchronisation déjà en cours ou prévue compte comme faite.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Serveur",
+          "description": "Le serveur Trobar à synchroniser."
+        }
+      }
     }
   },
   "exceptions": {
@@ -138,6 +160,9 @@
     },
     "scan_not_supported": {
       "message": "Ce serveur Trobar est antérieur à la 2.9.0 et ne peut pas lancer d'analyse depuis Home Assistant."
+    },
+    "playlist_sync_not_supported": {
+      "message": "Ce serveur Trobar ne peut pas synchroniser les playlists depuis Home Assistant : il lui faut une version plus récente."
     },
     "token_rejected": {
       "message": "Le serveur Trobar a rejeté le token. Il a peut-être été révoqué."
@@ -167,6 +192,10 @@
     "playlist_sources_route_missing": {
       "title": "Serveur Trobar {url} : pas d'entités de santé des sources de playlists",
       "description": "Le serveur a répondu 404 pour sa route des sources de playlists : les entités de santé des sources de playlists ne sont pas créées. Soit le serveur ne suit pas encore la santé des sources de playlists, soit un proxy inverse devant lui ne transmet pas ce chemin. Mettez le serveur à jour ou corrigez le proxy, puis rechargez l'intégration ; cet avis disparaît dès que la route répond."
+    },
+    "playlists_route_missing": {
+      "title": "Serveur Trobar à {url} : pas d'entités de playlists",
+      "description": "Le serveur a répondu 404 pour sa route des playlists : les entités de playlists et le bouton de synchronisation des playlists ne sont donc pas créés. Soit le serveur est antérieur à cette fonction, soit un proxy inverse placé devant lui ne transmet pas ce chemin. Mettez le serveur à jour ou corrigez le proxy, puis rechargez l'intégration ; cet avis disparaît dès que la route répond."
     }
   }
 }

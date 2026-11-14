@@ -4,13 +4,19 @@
 
 """Tests for playlist-mirror health (trobar-ha#32, trobar-server#506).
 
-Built against the documented payload shape rather than a captured one --
-trobar-ha#33 is the issue for a real redacted response, still open. The
-payloads below deliberately cover the cases #33 lists as worth capturing
-beyond the happy path, since each is somewhere an implementation can go
-wrong: a null last_written_at, a sink enabled nowhere, a truncated
-worklist, and several sinks failing at once.
+tests/fixtures/integrations_mirrors_2.18.0.json is a real response from
+trobar-server 2.18.0's GET /api/integrations/mirrors: its mirror state was
+written through that release's own writers (made-up playlists), and the
+response is the released route's. It has all six sinks in by_sink, and
+timestamps in the server's own format, "YYYY-MM-DD HH:MM:SS" in UTC.
+
+The hand-written payloads below cover what one capture can't: a null
+last_written_at, a sink enabled nowhere, a truncated worklist, and several
+sinks failing at once.
 """
+
+import json
+from pathlib import Path
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE
@@ -37,7 +43,7 @@ FAILING_MIRRORS = {
             "title": "Road Trip",
             "sink": "subsonic",
             "error_code": "unreachable",
-            "last_written_at": "2026-07-30T09:14:02Z",
+            "last_written_at": "2026-07-30 09:14:02",
         },
         {
             "playlist_id": 13,
@@ -51,7 +57,7 @@ FAILING_MIRRORS = {
             "title": "Kids",
             "sink": "jellyfin",
             "error_code": "no_target_matches",
-            "last_written_at": "2026-07-28T22:00:00Z",
+            "last_written_at": "2026-07-28 22:00:00",
         },
     ],
     "failing_truncated": False,
@@ -269,9 +275,9 @@ COVERAGE_MIRRORS = {
     "mirrors_short": 2,
     "short": [
         {"playlist_id": 12, "title": "Road Trip", "sink": "subsonic", "on_target": 38,
-         "total": 41, "lacked": 3, "refused": 0, "run_at": "2026-10-12T08:00:00Z"},
+         "total": 41, "lacked": 3, "refused": 0, "run_at": "2026-10-12 08:00:00"},
         {"playlist_id": 40, "title": "Kids", "sink": "jellyfin", "on_target": 10,
-         "total": 12, "lacked": 1, "refused": 1, "run_at": "2026-10-12T08:00:05Z"},
+         "total": 12, "lacked": 1, "refused": 1, "run_at": "2026-10-12 08:00:05"},
     ],
     "short_truncated": False,
 }
@@ -289,6 +295,50 @@ async def test_coverage_travels_as_attributes(hass, aioclient_mock):
     assert shown == [(12, "subsonic", 3, 0), (40, "jellyfin", 1, 1)]
     assert attrs["coverage_truncated"] is False
     assert attrs["by_sink"]["jellyfin"]["short"] == 1
+
+
+async def test_the_worklists_are_kept_out_of_the_recorder(hass, aioclient_mock):
+    """Both lists full can pass the recorder's limit for attributes; the
+    counts and flags beside them stay recorded."""
+    await _setup_entry(hass, aioclient_mock, [], mirrors=COVERAGE_MIRRORS)
+
+    state = hass.states.get(_sensor_id(hass))
+    unrecorded = state.state_info["unrecorded_attributes"]
+    assert {"failing", "coverage"} <= unrecorded
+    recorded_keys = (
+        "by_sink", "failing_truncated", "mirrors_short", "coverage_truncated",
+    )
+    for recorded in recorded_keys:
+        assert recorded in state.attributes, recorded
+        assert recorded not in unrecorded, recorded
+
+
+CAPTURED_MIRRORS = json.loads(
+    (Path(__file__).parent / "fixtures" / "integrations_mirrors_2.18.0.json").read_text(
+        encoding="utf-8"
+    )
+)
+
+
+async def test_a_captured_server_response(hass, aioclient_mock):
+    """trobar-server 2.18.0's own response: one pair failing (jellyfin), two
+    short (subsonic lacking 2, plex refusing 1), six sinks in by_sink."""
+    await _setup_entry(hass, aioclient_mock, [], mirrors=CAPTURED_MIRRORS)
+
+    state = hass.states.get(_sensor_id(hass))
+    assert state.state == "1"
+    assert hass.states.get(_problem_id(hass)).state == STATE_ON
+    attrs = state.attributes
+    assert attrs["mirrors_short"] == 2
+    assert [(c["sink"], c["lacked"], c["refused"]) for c in attrs["coverage"]] == [
+        ("subsonic", 2, 0),
+        ("plex", 0, 1),
+    ]
+    assert attrs["coverage_truncated"] is False
+    assert set(attrs["by_sink"]) == {
+        "filesystem", "subsonic", "jellyfin", "emby", "music_assistant", "plex",
+    }
+    assert attrs["by_sink"]["plex"] == {"enabled": 1, "failing": 0, "short": 1}
 
 
 async def test_coverage_is_not_an_alarm(hass, aioclient_mock):
@@ -337,7 +387,7 @@ TRUNCATED_COVERAGE = {
             "total": 10,
             "lacked": 1,
             "refused": 0,
-            "run_at": "2026-10-12T08:00:00Z",
+            "run_at": "2026-10-12 08:00:00",
         }
         for i in range(50)
     ],

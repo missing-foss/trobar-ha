@@ -42,6 +42,7 @@ from .const import (
 from .coordinator import (
     TrobarDataUpdateCoordinator,
     TrobarMirrorsDataUpdateCoordinator,
+    TrobarPlaylistsDataUpdateCoordinator,
     TrobarPlaylistSourcesDataUpdateCoordinator,
     TrobarServerDataUpdateCoordinator,
 )
@@ -61,8 +62,9 @@ class TrobarRuntimeData:
     than one fetch-everything coordinator.
 
     `mirrors` is None on a server older than 2.12.0, `server` on one
-    older than 2.9.0, and `playlist_sources` on one without playlist-source
-    health (2.17.0 and older). All are supported configurations, not errors: the
+    older than 2.9.0, `playlist_sources` on one without playlist-source
+    health (2.17.0 and older), and `playlists` on one without playlist
+    entities. All are supported configurations, not errors: the
     platforms skip those entities entirely rather than adding ones that
     could only read unavailable.
     """
@@ -71,6 +73,7 @@ class TrobarRuntimeData:
     server: TrobarServerDataUpdateCoordinator | None
     mirrors: TrobarMirrorsDataUpdateCoordinator | None
     playlist_sources: TrobarPlaylistSourcesDataUpdateCoordinator | None
+    playlists: TrobarPlaylistsDataUpdateCoordinator | None = None
 
 
 type TrobarConfigEntry = ConfigEntry[TrobarRuntimeData]
@@ -158,11 +161,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: TrobarConfigEntry) -> bo
         )
     _report_route(hass, entry, "playlist_sources", None, sources_coordinator.supported)
 
+    # Each device's playlists, and the playlist-sync action: optional the
+    # same way. No version in its notice yet, as for playlist sources.
+    playlists_coordinator = TrobarPlaylistsDataUpdateCoordinator(hass, entry, client)
+    await playlists_coordinator.async_refresh()
+    if not playlists_coordinator.supported:
+        _LOGGER.info(
+            "Trobar server at %s answered 404 for the playlists route: either "
+            "it predates playlist entities, or that route isn't reachable "
+            "(check any reverse proxy path rules). Skipping playlist entities "
+            "and the playlist-sync button",
+            entry.data[CONF_URL],
+        )
+    _report_route(hass, entry, "playlists", None, playlists_coordinator.supported)
+
     entry.runtime_data = TrobarRuntimeData(
         devices=devices_coordinator,
         server=server_coordinator if server_coordinator.supported else None,
         mirrors=mirrors_coordinator if mirrors_coordinator.supported else None,
         playlist_sources=sources_coordinator if sources_coordinator.supported else None,
+        playlists=playlists_coordinator if playlists_coordinator.supported else None,
     )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     # The options flow's poll interval reaches the coordinators by reload.
@@ -223,7 +241,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: TrobarConfigEntry) -> 
 
 
 # The optional routes whose 404 skips entities (TrobarRuntimeData).
-_OPTIONAL_ROUTES = ("server", "mirrors", "playlist_sources")
+_OPTIONAL_ROUTES = ("server", "mirrors", "playlist_sources", "playlists")
 
 
 def _route_issue_id(entry: TrobarConfigEntry, route: str) -> str:

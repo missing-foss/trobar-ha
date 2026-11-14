@@ -21,8 +21,10 @@ from .test_sensor import (
     MIRRORS_URL,
     PHONE_DEVICE,
     PLAYLIST_SOURCES_URL,
+    PLAYLISTS_URL,
     SAMPLE_MIRRORS,
     SAMPLE_PLAYLIST_SOURCES,
+    SAMPLE_PLAYLISTS,
     SAMPLE_SERVER_STATUS,
     SERVER_URL,
     _registry_device,
@@ -42,6 +44,9 @@ def _mock_server(aioclient_mock, base: str, devices: list) -> None:
     aioclient_mock.get(
         f"{base}/api/integrations/playlist-sources",
         json=copy.deepcopy(SAMPLE_PLAYLIST_SOURCES),
+    )
+    aioclient_mock.get(
+        f"{base}/api/integrations/playlists", json=copy.deepcopy(SAMPLE_PLAYLISTS)
     )
 
 
@@ -240,6 +245,7 @@ async def test_a_server_without_the_server_route_sets_up_with_device_sensors_onl
     aioclient_mock.get(SERVER_URL, status=404)
     aioclient_mock.get(MIRRORS_URL, status=404)
     aioclient_mock.get(PLAYLIST_SOURCES_URL, status=404)
+    aioclient_mock.get(PLAYLISTS_URL, status=404)
     entry = _entry("http://trobar.local")
     await _set_up(hass, entry)
 
@@ -278,6 +284,7 @@ async def test_an_unreachable_server_route_at_startup_keeps_the_entities(
     aioclient_mock.get(
         PLAYLIST_SOURCES_URL, json=copy.deepcopy(SAMPLE_PLAYLIST_SOURCES)
     )
+    aioclient_mock.get(PLAYLISTS_URL, json=copy.deepcopy(SAMPLE_PLAYLISTS))
     entry = _entry("http://trobar.local")
     await _set_up(hass, entry)
 

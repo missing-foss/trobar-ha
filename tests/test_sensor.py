@@ -18,6 +18,7 @@ DEVICES_URL = "http://trobar.local/api/integrations/devices"
 SERVER_URL = "http://trobar.local/api/integrations/server"
 MIRRORS_URL = "http://trobar.local/api/integrations/mirrors"
 PLAYLIST_SOURCES_URL = "http://trobar.local/api/integrations/playlist-sources"
+PLAYLISTS_URL = "http://trobar.local/api/integrations/playlists"
 
 # trobar-ha#25: __init__.py's first refresh now fetches both endpoints,
 # so every test that sets up a full config entry needs this mocked too --
@@ -54,6 +55,59 @@ SAMPLE_PLAYLIST_SOURCES = {
     "sources_alerting": 0,
     "alerting": [],
     "alerting_truncated": False,
+}
+
+# Device playlists (trobar-ha#19), the default for the same reason again;
+# tests/test_playlists.py overrides it. The phone has three playlists, one
+# of them private, so the server leaves its title out; the watch has none:
+# an empty list, not an absent device.
+SAMPLE_PLAYLISTS = {
+    "playlists_total": 5,
+    "playlists_with_gaps": 1,
+    "devices": [
+        {
+            "device_id": 1,
+            "name": "Test Phone",
+            "playlists_count": 3,
+            "playlists": [
+                {
+                    "playlist_id": 3,
+                    "title": "Morning run",
+                    "private": False,
+                    "tracks": 20,
+                    "matched": 20,
+                    "available": 100,
+                    "has_gaps": False,
+                },
+                {
+                    "playlist_id": 7,
+                    "title": "Kitchen radio",
+                    "private": False,
+                    "tracks": 40,
+                    "matched": 30,
+                    "available": 75,
+                    "has_gaps": True,
+                },
+                {
+                    "playlist_id": 9,
+                    "title": None,
+                    "private": True,
+                    "tracks": 10,
+                    "matched": 5,
+                    "available": 50,
+                    "has_gaps": False,
+                },
+            ],
+            "playlists_truncated": False,
+        },
+        {
+            "device_id": 5,
+            "name": "Test Watch",
+            "playlists_count": 0,
+            "playlists": [],
+            "playlists_truncated": False,
+        },
+    ],
 }
 
 # A regular phone: fully populated, nothing null.
@@ -128,6 +182,8 @@ async def _setup_entry(
     mirrors_status=None,
     playlist_sources=SAMPLE_PLAYLIST_SOURCES,
     playlist_sources_status=None,
+    playlists=SAMPLE_PLAYLISTS,
+    playlists_status=None,
 ) -> MockConfigEntry:
     aioclient_mock.get(DEVICES_URL, json=copy.deepcopy(devices))
     aioclient_mock.get(SERVER_URL, json=copy.deepcopy(server_status))
@@ -141,6 +197,10 @@ async def _setup_entry(
         aioclient_mock.get(PLAYLIST_SOURCES_URL, status=playlist_sources_status)
     else:
         aioclient_mock.get(PLAYLIST_SOURCES_URL, json=copy.deepcopy(playlist_sources))
+    if playlists_status is not None:
+        aioclient_mock.get(PLAYLISTS_URL, status=playlists_status)
+    else:
+        aioclient_mock.get(PLAYLISTS_URL, json=copy.deepcopy(playlists))
     entry = MockConfigEntry(
         domain=DOMAIN,
         unique_id="http://trobar.local",

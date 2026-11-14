@@ -26,6 +26,7 @@ from .const import DOMAIN
 from .coordinator import translated_error
 
 SERVICE_SCAN_LIBRARY = "scan_library"
+SERVICE_SYNC_PLAYLISTS = "sync_playlists"
 ATTR_FORCE = "force"
 
 SCAN_LIBRARY_SCHEMA = vol.Schema(
@@ -35,12 +36,14 @@ SCAN_LIBRARY_SCHEMA = vol.Schema(
     }
 )
 
+SYNC_PLAYLISTS_SCHEMA = vol.Schema({vol.Required(ATTR_CONFIG_ENTRY_ID): cv.string})
+
 
 def async_setup_services(hass: HomeAssistant) -> None:
     """Registered once, at integration setup, not per entry: the action
     names its server by config entry."""
 
-    async def _scan_library(call: ServiceCall) -> ServiceResponse:
+    def _loaded_entry(call: ServiceCall):
         entry = hass.config_entries.async_get_entry(call.data[ATTR_CONFIG_ENTRY_ID])
         if (
             entry is None
@@ -50,6 +53,10 @@ def async_setup_services(hass: HomeAssistant) -> None:
             raise ServiceValidationError(
                 translation_domain=DOMAIN, translation_key="entry_not_loaded"
             )
+        return entry
+
+    async def _scan_library(call: ServiceCall) -> ServiceResponse:
+        entry = _loaded_entry(call)
         server = entry.runtime_data.server
         if server is None:
             # Before 2.9.0 the server has no scan action (TrobarRuntimeData).
@@ -71,5 +78,30 @@ def async_setup_services(hass: HomeAssistant) -> None:
         SERVICE_SCAN_LIBRARY,
         _scan_library,
         schema=SCAN_LIBRARY_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+
+    async def _sync_playlists(call: ServiceCall) -> ServiceResponse:
+        entry = _loaded_entry(call)
+        playlists = entry.runtime_data.playlists
+        if playlists is None:
+            # The server has no playlists route (TrobarRuntimeData).
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="playlist_sync_not_supported",
+            )
+        try:
+            started = await playlists.client.async_trigger_playlist_sync()
+        except TrobarApiError as err:
+            raise translated_error(err) from err
+        await playlists.async_request_refresh()
+        # False is a sync already running or scheduled: satisfied either way.
+        return {"started": started} if call.return_response else None
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SYNC_PLAYLISTS,
+        _sync_playlists,
+        schema=SYNC_PLAYLISTS_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
     )

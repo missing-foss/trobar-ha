@@ -24,6 +24,8 @@ SERVER_PATH = "/api/integrations/server"
 MIRRORS_PATH = "/api/integrations/mirrors"
 PLAYLIST_SOURCES_PATH = "/api/integrations/playlist-sources"
 ACTIONS_SCAN_PATH = "/api/integrations/actions/scan"
+PLAYLISTS_PATH = "/api/integrations/playlists"
+ACTIONS_PLAYLIST_SYNC_PATH = "/api/integrations/actions/playlist-sync"
 
 # The server's own rate limit on these routes is its own bucket (30
 # failures / 5 min, shared across all three as of trobar-server#474 --
@@ -201,6 +203,28 @@ class TrobarApiClient:
         """
         _, body = await self._request_json("GET", PLAYLIST_SOURCES_PATH)
         return body
+
+    async def async_get_playlists(self) -> dict[str, Any]:
+        """Fetch each device's playlists and the server's playlist totals
+        (trobar-ha#19; the first server release after 2.17.0 with it).
+
+        `playlists_total` and `playlists_with_gaps` are the server's;
+        `devices` lists each device's playlists, capped at 100 a device
+        with `playlists_count` exact and `playlists_truncated` saying so.
+        """
+        _, body = await self._request_json("GET", PLAYLISTS_PATH)
+        return body
+
+    async def async_trigger_playlist_sync(self) -> bool:
+        """Start a playlist sync, as the web UI's button does (trobar-ha#19).
+
+        True if this call started one, False if one was already running
+        (409): both satisfy "make sure a sync happens", as for a scan.
+        """
+        status, _ = await self._request_json(
+            "POST", ACTIONS_PLAYLIST_SYNC_PATH, extra_ok_statuses={409}
+        )
+        return status != 409
 
     async def async_trigger_scan(self, *, force: bool = False) -> bool:
         """Trigger a library rescan (trobar-server#474, server 2.9.0).

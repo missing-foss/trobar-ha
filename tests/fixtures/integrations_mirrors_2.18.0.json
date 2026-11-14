@@ -1,0 +1,69 @@
+{
+  "by_sink": {
+    "emby": {
+      "enabled": 0,
+      "failing": 0,
+      "short": 0
+    },
+    "filesystem": {
+      "enabled": 1,
+      "failing": 0,
+      "short": 0
+    },
+    "jellyfin": {
+      "enabled": 1,
+      "failing": 1,
+      "short": 0
+    },
+    "music_assistant": {
+      "enabled": 0,
+      "failing": 0,
+      "short": 0
+    },
+    "plex": {
+      "enabled": 1,
+      "failing": 0,
+      "short": 1
+    },
+    "subsonic": {
+      "enabled": 2,
+      "failing": 0,
+      "short": 1
+    }
+  },
+  "failing": [
+    {
+      "error_code": "unreachable",
+      "last_written_at": null,
+      "playlist_id": 2,
+      "sink": "jellyfin",
+      "title": "Focus"
+    }
+  ],
+  "failing_truncated": false,
+  "mirrors_failing": 1,
+  "mirrors_short": 2,
+  "short": [
+    {
+      "lacked": 2,
+      "on_target": 10,
+      "playlist_id": 1,
+      "refused": 0,
+      "run_at": "2026-11-12 00:49:02",
+      "sink": "subsonic",
+      "title": "Road Trip",
+      "total": 12
+    },
+    {
+      "lacked": 0,
+      "on_target": 11,
+      "playlist_id": 1,
+      "refused": 1,
+      "run_at": "2026-11-12 00:49:02",
+      "sink": "plex",
+      "title": "Road Trip",
+      "total": 12
+    }
+  ],
+  "short_truncated": false
+}

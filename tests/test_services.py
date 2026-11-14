@@ -19,6 +19,7 @@ from .test_sensor import (
     MIRRORS_URL,
     PHONE_DEVICE,
     PLAYLIST_SOURCES_URL,
+    PLAYLISTS_URL,
     SERVER_URL,
     _setup_entry,
 )
@@ -145,6 +146,7 @@ async def test_a_server_without_the_scan_action_is_refused(hass, aioclient_mock)
     aioclient_mock.get(SERVER_URL, status=404)
     aioclient_mock.get(MIRRORS_URL, status=404)
     aioclient_mock.get(PLAYLIST_SOURCES_URL, status=404)
+    aioclient_mock.get(PLAYLISTS_URL, status=404)
     entry = await _setup_entry(hass, aioclient_mock, [PHONE_DEVICE])
     assert entry.runtime_data.server is None  # the control: a 2.8.1 server
 

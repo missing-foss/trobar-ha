@@ -20,6 +20,7 @@ from .test_sensor import (
     MIRRORS_URL,
     PHONE_DEVICE,
     PLAYLIST_SOURCES_URL,
+    PLAYLISTS_URL,
     SAMPLE_MIRRORS,
     SAMPLE_SERVER_STATUS,
     SERVER_URL,
@@ -34,7 +35,7 @@ async def test_diagnostics_carry_no_names_or_addresses(hass, aioclient_mock):
     mirrors = copy.deepcopy(FAILING_MIRRORS)
     mirrors["short"] = [
         {"playlist_id": 21, "title": "Night Drive", "sink": "plex", "on_target": 9,
-         "total": 10, "lacked": 1, "refused": 0, "run_at": "2026-07-30T09:00:00Z"}
+         "total": 10, "lacked": 1, "refused": 0, "run_at": "2026-07-30 09:00:00"}
     ]
     entry = await _setup_entry(
         hass, aioclient_mock, [PHONE_DEVICE, WATCH_DEVICE], mirrors=mirrors,
@@ -46,7 +47,7 @@ async def test_diagnostics_carry_no_names_or_addresses(hass, aioclient_mock):
     text = repr(result)
     for secret in ("abc123", "trobar.local", "Test Phone", "Test Watch", "alice",
                    "bob", "Road Trip", "Focus", "Night Drive", "carol",
-                   "Road trip mix"):
+                   "Road trip mix", "Morning run", "Kitchen radio"):
         assert secret not in text, secret
     data = result["entry"]
     assert data["data"][CONF_API_TOKEN] == data["data"][CONF_URL] == "**REDACTED**"
@@ -55,6 +56,15 @@ async def test_diagnostics_carry_no_names_or_addresses(hass, aioclient_mock):
     assert phone["name"] == phone["owner_username"] == "**REDACTED**"
     assert result["mirrors"]["data"]["failing"][0]["title"] == "**REDACTED**"
     assert result["mirrors"]["data"]["short"][0]["title"] == "**REDACTED**"
+    playlists = result["playlists"]["data"]
+    assert playlists["devices"][0]["name"] == "**REDACTED**"
+    phone_playlists = playlists["devices"][0]["playlists"]
+    assert [(p["title"], p["available"]) for p in phone_playlists] == [
+        ("**REDACTED**", 100),
+        ("**REDACTED**", 75),
+        (None, 50),
+    ]
+    assert playlists["playlists_with_gaps"] == 1
     sources = result["playlist_sources"]["data"]["alerting"]
     assert {s["account"] for s in sources} == {"**REDACTED**"}
     # What identifies no one stays: the kind, provider, runs and reason.
@@ -83,6 +93,7 @@ async def test_diagnostics_say_which_routes_this_server_lacks(hass, aioclient_mo
     aioclient_mock.get(SERVER_URL, status=404)
     aioclient_mock.get(MIRRORS_URL, status=404)
     aioclient_mock.get(PLAYLIST_SOURCES_URL, status=404)
+    aioclient_mock.get(PLAYLISTS_URL, status=404)
     entry = await _setup_entry(hass, aioclient_mock, [PHONE_DEVICE], server_status=None)
 
     result = await async_get_config_entry_diagnostics(hass, entry)
@@ -90,6 +101,7 @@ async def test_diagnostics_say_which_routes_this_server_lacks(hass, aioclient_mo
     assert result["server"] is None
     assert result["mirrors"] is None
     assert result["playlist_sources"] is None
+    assert result["playlists"] is None
     assert result["devices"]["data"][1]["device_type"] == "phone"
 
 

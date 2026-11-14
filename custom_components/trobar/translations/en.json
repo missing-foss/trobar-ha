@@ -78,6 +78,15 @@
       },
       "server_playlist_sources_failing": {
         "name": "Failing playlist sources"
+      },
+      "playlists": {
+        "name": "Playlists"
+      },
+      "server_playlists_total": {
+        "name": "Playlists"
+      },
+      "server_playlists_with_gaps": {
+        "name": "Playlists with gaps"
       }
     },
     "binary_sensor": {
@@ -97,6 +106,9 @@
     "button": {
       "scan_library": {
         "name": "Scan library"
+      },
+      "sync_playlists": {
+        "name": "Sync playlists"
       }
     }
   },
@@ -130,6 +142,16 @@
           "description": "Re-read every file, not only those changed since the last scan."
         }
       }
+    },
+    "sync_playlists": {
+      "name": "Sync playlists",
+      "description": "Asks a Trobar server to sync its playlists now. A sync already running or scheduled counts as done.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Server",
+          "description": "The Trobar server whose playlists to sync."
+        }
+      }
     }
   },
   "exceptions": {
@@ -138,6 +160,9 @@
     },
     "scan_not_supported": {
       "message": "This Trobar server is older than 2.9.0, which can't start a scan from Home Assistant."
+    },
+    "playlist_sync_not_supported": {
+      "message": "This Trobar server can't sync playlists from Home Assistant: it needs a newer version."
     },
     "token_rejected": {
       "message": "The Trobar server rejected the token. It may have been revoked."
@@ -167,6 +192,10 @@
     "playlist_sources_route_missing": {
       "title": "Trobar server at {url}: no playlist source health entities",
       "description": "The server answered 404 for its playlist sources route, so the playlist source health entities aren't set up. Either the server predates playlist source health, or a reverse proxy in front of it doesn't forward that path. Upgrade the server or fix the proxy, then reload the integration; this notice goes away once the route answers."
+    },
+    "playlists_route_missing": {
+      "title": "Trobar server at {url}: no playlist entities",
+      "description": "The server answered 404 for its playlists route, so the playlist entities and the playlist sync button aren't set up. Either the server predates them, or a reverse proxy in front of it doesn't forward that path. Upgrade the server or fix the proxy, then reload the integration; this notice goes away once the route answers."
     }
   }
 }

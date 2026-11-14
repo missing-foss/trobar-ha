@@ -13,6 +13,27 @@ is its tag's. Versions before 0.3.0 are in the git log.
 
 ## [Unreleased]
 
+## [0.5.0]
+
+### Added
+
+- Playlists: totals and playlists with gaps on the server device, and each
+  device's playlists with how complete each one is.
+- A "Sync playlists" button and a `trobar.sync_playlists` action.
+
+Both need trobar-server 2.18.0 or later. With an older server, Settings →
+Repairs says the playlist entities were skipped, the button isn't there, and
+the action answers that the server needs a newer version. Everything else
+works as in 0.4.0.
+
+### Fixed
+
+- "Mirrors failing" no longer records its `failing` and `coverage` lists in
+  history. With both lists full they passed the recorder's 16 KiB limit for
+  attributes, and the recorder then dropped every attribute of that state.
+  The lists are still there to read live; the count and the per-target
+  breakdown are still recorded.
+
 ## [0.4.0]
 
 ### Security

@@ -14,3 +14,11 @@ scan_library:
       default: false
       selector:
         boolean:
+
+sync_playlists:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: trobar

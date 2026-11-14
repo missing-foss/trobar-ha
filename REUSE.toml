@@ -59,3 +59,11 @@ path = [
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 missing-foss"
 SPDX-License-Identifier = "GPL-3.0-or-later"
+
+# --- A captured server response (JSON has no comment syntax). Made-up
+# playlists; see tests/test_mirrors.py for how it was captured. ---------------
+[[annotations]]
+path = "tests/fixtures/integrations_mirrors_2.18.0.json"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 missing-foss"
+SPDX-License-Identifier = "GPL-3.0-or-later"

@@ -287,3 +287,42 @@ class TrobarPlaylistSourcesDataUpdateCoordinator(
         except TrobarApiError as err:
             _raise_for_api_error(err)
             raise AssertionError("unreachable")  # pragma: no cover
+
+
+class TrobarPlaylistsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+    """Fetch each device's playlists and the server's playlist totals
+    (trobar-ha#19). Its own coordinator, as mirrors and playlist sources
+    have one: a failure here must not take the other entities down.
+
+    `supported` works as theirs does: the route is newer than the others,
+    so a 404 means the server predates it (or a proxy doesn't forward the
+    path), and __init__.py skips the playlist entities and the sync
+    button. It starts True and only a 404 sets it False.
+    """
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, client: TrobarApiClient
+    ) -> None:
+        super().__init__(
+            hass,
+            _LOGGER,
+            config_entry=entry,
+            name="Trobar playlists",
+            update_interval=update_interval(entry),
+            always_update=False,
+        )
+        self.client = client
+        self.supported = True
+
+    async def _async_update_data(self) -> dict[str, Any]:
+        try:
+            return await self.client.async_get_playlists()
+        except TrobarServerTooOldError as err:
+            self.supported = False
+            raise UpdateFailed(
+                "Playlists route answered 404 (needs a server with playlist "
+                "entities, or the route isn't reachable)"
+            ) from err
+        except TrobarApiError as err:
+            _raise_for_api_error(err)
+            raise AssertionError("unreachable")  # pragma: no cover
